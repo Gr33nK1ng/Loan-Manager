@@ -20,8 +20,7 @@ import {
   signOut,
   onAuthStateChanged,
   RecaptchaVerifier,
-  signInWithPhoneNumber,
-  sendEmailVerification
+  signInWithPhoneNumber
 } from 'firebase/auth'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
