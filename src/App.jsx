@@ -9,9 +9,7 @@ import {
   onSnapshot,
   query,
   where,
-  updateDoc,
-  getDoc,
-  setDoc
+  updateDoc
 } from 'firebase/firestore'
 import {
   createUserWithEmailAndPassword,
@@ -20,65 +18,101 @@ import {
   signOut,
   onAuthStateChanged,
   RecaptchaVerifier,
-  signInWithPhoneNumber
+  signInWithPhoneNumber,
+  sendEmailVerification
 } from 'firebase/auth'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
-import { sendEmailVerification } from 'firebase/auth'
 
-// ─── Plan Configuration ───────────────────────────────────────────────────────
-
-const PLANS = {
-  free: {
-    name: 'Free',
-    price: 0,
-    borrowerLimit: 5,
-    loanLimit: 10,
-    receipts: false,
-    reminders: false,
-    reports: false,
-    color: '#888'
-  },
-  basic: {
-    name: 'Basic',
-    monthlyPrice: 500,
-    yearlyPrice: 5000,
-    borrowerLimit: 50,
-    loanLimit: null,
-    receipts: true,
-    reminders: false,
-    reports: true,
-    color: '#3498db',
-    trialDays: 14
-  },
-  pro: {
-    name: 'Pro',
-    monthlyPrice: 1500,
-    yearlyPrice: 15000,
-    borrowerLimit: null,
-    loanLimit: null,
-    receipts: true,
-    reminders: true,
-    reports: true,
-    color: '#1D9E75',
-    trialDays: 14
-  },
-  business: {
-    name: 'Business',
-    monthlyPrice: 5000,
-    yearlyPrice: 50000,
-    borrowerLimit: null,
-    loanLimit: null,
-    receipts: true,
-    reminders: true,
-    reports: true,
-    color: '#1a1a2e',
-    trialDays: 14
-  }
-}
-
-const MPESA_NUMBER = '0791486201' // Replace with your actual M-Pesa number
-const WHATSAPP_NUMBER = '254791486201' // Replace with your actual WhatsApp number
+const CURRENCIES = [
+  { code: 'KSh', name: 'Kenyan Shilling' },
+  { code: 'UGX', name: 'Ugandan Shilling' },
+  { code: 'TZS', name: 'Tanzanian Shilling' },
+  { code: 'NGN', name: 'Nigerian Naira' },
+  { code: 'ZAR', name: 'South African Rand' },
+  { code: 'GHS', name: 'Ghanaian Cedi' },
+  { code: 'ETB', name: 'Ethiopian Birr' },
+  { code: 'RWF', name: 'Rwandan Franc' },
+  { code: 'XOF', name: 'West African CFA Franc' },
+  { code: 'XAF', name: 'Central African CFA Franc' },
+  { code: 'ZMW', name: 'Zambian Kwacha' },
+  { code: 'MWK', name: 'Malawian Kwacha' },
+  { code: 'MZN', name: 'Mozambican Metical' },
+  { code: 'BWP', name: 'Botswana Pula' },
+  { code: 'NAD', name: 'Namibian Dollar' },
+  { code: 'SOS', name: 'Somali Shilling' },
+  { code: 'SDG', name: 'Sudanese Pound' },
+  { code: 'DZD', name: 'Algerian Dinar' },
+  { code: 'MAD', name: 'Moroccan Dirham' },
+  { code: 'EGP', name: 'Egyptian Pound' },
+  { code: 'TND', name: 'Tunisian Dinar' },
+  { code: 'LYD', name: 'Libyan Dinar' },
+  { code: 'AOA', name: 'Angolan Kwanza' },
+  { code: 'CDF', name: 'Congolese Franc' },
+  { code: 'MGA', name: 'Malagasy Ariary' },
+  { code: 'MUR', name: 'Mauritian Rupee' },
+  { code: 'SCR', name: 'Seychellois Rupee' },
+  { code: 'USD', name: 'US Dollar' },
+  { code: 'CAD', name: 'Canadian Dollar' },
+  { code: 'MXN', name: 'Mexican Peso' },
+  { code: 'BRL', name: 'Brazilian Real' },
+  { code: 'ARS', name: 'Argentine Peso' },
+  { code: 'CLP', name: 'Chilean Peso' },
+  { code: 'COP', name: 'Colombian Peso' },
+  { code: 'PEN', name: 'Peruvian Sol' },
+  { code: 'UYU', name: 'Uruguayan Peso' },
+  { code: 'PYG', name: 'Paraguayan Guaraní' },
+  { code: 'BOB', name: 'Bolivian Boliviano' },
+  { code: 'VES', name: 'Venezuelan Bolívar' },
+  { code: 'GTQ', name: 'Guatemalan Quetzal' },
+  { code: 'CRC', name: 'Costa Rican Colón' },
+  { code: 'JMD', name: 'Jamaican Dollar' },
+  { code: 'TTD', name: 'Trinidad Dollar' },
+  { code: 'EUR', name: 'Euro' },
+  { code: 'GBP', name: 'British Pound' },
+  { code: 'CHF', name: 'Swiss Franc' },
+  { code: 'NOK', name: 'Norwegian Krone' },
+  { code: 'SEK', name: 'Swedish Krona' },
+  { code: 'DKK', name: 'Danish Krone' },
+  { code: 'PLN', name: 'Polish Zloty' },
+  { code: 'CZK', name: 'Czech Koruna' },
+  { code: 'HUF', name: 'Hungarian Forint' },
+  { code: 'RON', name: 'Romanian Leu' },
+  { code: 'HRK', name: 'Croatian Kuna' },
+  { code: 'RUB', name: 'Russian Ruble' },
+  { code: 'UAH', name: 'Ukrainian Hryvnia' },
+  { code: 'TRY', name: 'Turkish Lira' },
+  { code: 'CNY', name: 'Chinese Yuan' },
+  { code: 'JPY', name: 'Japanese Yen' },
+  { code: 'INR', name: 'Indian Rupee' },
+  { code: 'KRW', name: 'South Korean Won' },
+  { code: 'IDR', name: 'Indonesian Rupiah' },
+  { code: 'MYR', name: 'Malaysian Ringgit' },
+  { code: 'SGD', name: 'Singapore Dollar' },
+  { code: 'THB', name: 'Thai Baht' },
+  { code: 'VND', name: 'Vietnamese Dong' },
+  { code: 'PHP', name: 'Philippine Peso' },
+  { code: 'PKR', name: 'Pakistani Rupee' },
+  { code: 'BDT', name: 'Bangladeshi Taka' },
+  { code: 'NPR', name: 'Nepalese Rupee' },
+  { code: 'LKR', name: 'Sri Lankan Rupee' },
+  { code: 'MMK', name: 'Myanmar Kyat' },
+  { code: 'KHR', name: 'Cambodian Riel' },
+  { code: 'AED', name: 'UAE Dirham' },
+  { code: 'SAR', name: 'Saudi Riyal' },
+  { code: 'QAR', name: 'Qatari Riyal' },
+  { code: 'KWD', name: 'Kuwaiti Dinar' },
+  { code: 'BHD', name: 'Bahraini Dinar' },
+  { code: 'OMR', name: 'Omani Rial' },
+  { code: 'JOD', name: 'Jordanian Dinar' },
+  { code: 'ILS', name: 'Israeli Shekel' },
+  { code: 'IQD', name: 'Iraqi Dinar' },
+  { code: 'IRR', name: 'Iranian Rial' },
+  { code: 'AUD', name: 'Australian Dollar' },
+  { code: 'NZD', name: 'New Zealand Dollar' },
+  { code: 'FJD', name: 'Fijian Dollar' },
+  { code: 'PGK', name: 'Papua New Guinea Kina' }
+]
 
 // ─── Payment Receipt Component ────────────────────────────────────────────────
 
@@ -124,7 +158,7 @@ function PaymentReceipt({ txn, loan, onClose }) {
     )
     setTimeout(() => { window.location.href = `mailto:?subject=${subject}&body=${body}` }, 500)
   }
-  
+
   const handleWhatsApp = async () => {
     const pdf = await generatePDF()
     pdf.save(`Receipt-${txn.txnCode}.pdf`)
@@ -138,7 +172,7 @@ function PaymentReceipt({ txn, loan, onClose }) {
         `Amount Paid: *${txn.currency} ${txn.amountPaid.toLocaleString()}*\n` +
         `Remaining Balance: ${txn.currency} ${txn.remainingBalance.toLocaleString()}\n` +
         `Method: ${txn.method} | Ref: ${txn.referenceCode}\n\n` +
-        `_PDF receipt has been downloaded. Please attach it to this message._\n\n` +
+        `_PDF receipt downloaded. Please attach to this message._\n\n` +
         `_Thank you for your payment_ 🙏`
       )
       window.open(`https://wa.me/?text=${text}`, '_blank')
@@ -199,7 +233,9 @@ function PaymentReceipt({ txn, loan, onClose }) {
             </div>
             <div style={{ marginTop: '10px', padding: '10px 16px', border: '1px solid #eee', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '13px', color: '#888' }}>Remaining Balance</span>
-              <span style={{ fontSize: '15px', fontWeight: 600, color: txn.remainingBalance <= 0 ? '#1D9E75' : '#e74c3c' }}>{txn.remainingBalance <= 0 ? '✅ Cleared' : `${txn.currency} ${txn.remainingBalance.toLocaleString()}`}</span>
+              <span style={{ fontSize: '15px', fontWeight: 600, color: txn.remainingBalance <= 0 ? '#1D9E75' : '#e74c3c' }}>
+                {txn.remainingBalance <= 0 ? '✅ Cleared' : `${txn.currency} ${txn.remainingBalance.toLocaleString()}`}
+              </span>
             </div>
             <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px dashed #ddd', textAlign: 'center' }}>
               <p style={{ fontSize: '11px', color: '#aaa', margin: '0 0 4px' }}>Thank you for your payment</p>
@@ -219,271 +255,6 @@ function PaymentReceipt({ txn, loan, onClose }) {
   )
 }
 
-// ─── Pricing Modal ────────────────────────────────────────────────────────────
-
-function PricingModal({ onClose, currentPlan, onSubmitPayment }) {
-  const [billing, setBilling] = useState('monthly')
-  const [selectedPlan, setSelectedPlan] = useState(null)
-  const [step, setStep] = useState('plans')
-  const [mpesaCode, setMpesaCode] = useState('')
-  const [phone, setPhone] = useState('')
-  const [submitted, setSubmitted] = useState(false)
-
-  const getPrice = (plan) => {
-    if (plan === 'free') return 'Free'
-    const p = PLANS[plan]
-    return billing === 'monthly'
-      ? `KSh ${p.monthlyPrice.toLocaleString()}/mo`
-      : `KSh ${p.yearlyPrice.toLocaleString()}/yr`
-  }
-
-  const getAmount = (plan) => {
-    const p = PLANS[plan]
-    return billing === 'monthly' ? p.monthlyPrice : p.yearlyPrice
-  }
-
-  const handleSelectPlan = (plan) => {
-    if (plan === 'free') return
-    setSelectedPlan(plan)
-    setStep('payment')
-  }
-
-  const handleSubmit = () => {
-    if (!mpesaCode || !phone) {
-      alert('Please fill in all fields')
-      return
-    }
-    onSubmitPayment({
-      plan: selectedPlan,
-      billing,
-      amount: getAmount(selectedPlan),
-      mpesaCode,
-      phone
-    })
-    setSubmitted(true)
-  }
-
-  return (
-    <div className="modal-overlay">
-      <div className="modal" style={{ maxWidth: '640px', maxHeight: '90vh', overflowY: 'auto' }}>
-
-        {step === 'plans' && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3>Choose your plan</h3>
-              <button className="btn-secondary" onClick={onClose}>✕</button>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
-              <div style={{ background: '#f0f2f5', borderRadius: '10px', padding: '4px', display: 'flex', gap: '4px' }}>
-                <button
-                  style={{ padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', background: billing === 'monthly' ? '#fff' : 'transparent', fontWeight: billing === 'monthly' ? 600 : 400, fontSize: '14px' }}
-                  onClick={() => setBilling('monthly')}
-                >
-                  Monthly
-                </button>
-                <button
-                  style={{ padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', background: billing === 'yearly' ? '#fff' : 'transparent', fontWeight: billing === 'yearly' ? 600 : 400, fontSize: '14px' }}
-                  onClick={() => setBilling('yearly')}
-                >
-                  Yearly <span style={{ color: '#1D9E75', fontSize: '12px' }}>2 months free</span>
-                </button>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
-              {['free', 'basic', 'pro', 'business'].map(plan => (
-                <div
-                  key={plan}
-                  style={{
-                    border: `2px solid ${currentPlan === plan ? PLANS[plan].color || '#888' : '#eee'}`,
-                    borderRadius: '12px',
-                    padding: '20px',
-                    cursor: plan === 'free' ? 'default' : 'pointer',
-                    background: currentPlan === plan ? '#f9f9f9' : '#fff'
-                  }}
-                  onClick={() => handleSelectPlan(plan)}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <h4 style={{ color: PLANS[plan].color || '#888', margin: 0 }}>{PLANS[plan].name}</h4>
-                    {currentPlan === plan && <span style={{ fontSize: '11px', background: '#f0f2f5', padding: '2px 8px', borderRadius: '20px' }}>Current</span>}
-                    {plan !== 'free' && <span style={{ fontSize: '11px', background: '#E1F5EE', color: '#0F6E56', padding: '2px 8px', borderRadius: '20px' }}>14 day trial</span>}
-                  </div>
-                  <p style={{ fontSize: '20px', fontWeight: 700, color: '#1a1a2e', margin: '0 0 12px' }}>{getPrice(plan)}</p>
-                  <div style={{ fontSize: '13px', color: '#555' }}>
-                    <p style={{ margin: '4px 0' }}>👥 {PLANS[plan].borrowerLimit ? `${PLANS[plan].borrowerLimit} borrowers` : 'Unlimited borrowers'}</p>
-                    <p style={{ margin: '4px 0' }}>📋 {PLANS[plan].loanLimit ? `${PLANS[plan].loanLimit} loans` : 'Unlimited loans'}</p>
-                    <p style={{ margin: '4px 0' }}>{PLANS[plan].receipts ? '✅' : '❌'} PDF receipts</p>
-                    <p style={{ margin: '4px 0' }}>{PLANS[plan].reminders ? '✅' : '❌'} Payment reminders</p>
-                    <p style={{ margin: '4px 0' }}>{PLANS[plan].reports ? '✅' : '❌'} Reports export</p>
-                  </div>
-                  {plan !== 'free' && (
-                    <button
-                      className="btn-primary"
-                      style={{ width: '100%', marginTop: '16px', fontSize: '14px' }}
-                      onClick={() => handleSelectPlan(plan)}
-                    >
-                      {currentPlan === plan ? 'Current Plan' : 'Start 14 day trial'}
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {step === 'payment' && !submitted && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3>Complete your upgrade</h3>
-              <button className="btn-secondary" onClick={() => setStep('plans')}>← Back</button>
-            </div>
-
-            <div style={{ background: '#f0f2f5', borderRadius: '12px', padding: '20px', marginBottom: '24px' }}>
-              <h4 style={{ margin: '0 0 8px', color: '#1a1a2e' }}>
-                {PLANS[selectedPlan]?.name} Plan — {billing === 'monthly' ? 'Monthly' : 'Yearly'}
-              </h4>
-              <p style={{ margin: '0 0 4px', fontSize: '24px', fontWeight: 700, color: '#1a1a2e' }}>
-                KSh {getAmount(selectedPlan)?.toLocaleString()}
-              </p>
-              <p style={{ margin: 0, fontSize: '13px', color: '#888' }}>
-                14 day free trial — you will not be charged until your trial ends
-              </p>
-            </div>
-
-            <div style={{ background: '#E1F5EE', borderRadius: '12px', padding: '20px', marginBottom: '24px' }}>
-              <h4 style={{ margin: '0 0 12px', color: '#0F6E56' }}>📱 Pay via M-Pesa</h4>
-              <div style={{ fontSize: '14px', color: '#1a1a2e', lineHeight: '2' }}>
-                <p style={{ margin: '0 0 4px' }}>1. Go to M-Pesa on your phone</p>
-                <p style={{ margin: '0 0 4px' }}>2. Select <strong>Send Money</strong></p>
-                <p style={{ margin: '0 0 4px' }}>3. Enter number: <strong style={{ fontSize: '18px', color: '#0F6E56' }}>{MPESA_NUMBER}</strong></p>
-                <p style={{ margin: '0 0 4px' }}>4. Enter amount: <strong>KSh {getAmount(selectedPlan)?.toLocaleString()}</strong></p>
-                <p style={{ margin: '0 0 4px' }}>5. Enter your M-Pesa PIN and confirm</p>
-                <p style={{ margin: 0 }}>6. Copy the M-Pesa confirmation code and paste below</p>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label>Your Phone Number *</label>
-              <input
-                type="tel"
-                placeholder="e.g. 0712345678"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label>M-Pesa Confirmation Code *</label>
-              <input
-                type="text"
-                placeholder="e.g. ABC123XYZ"
-                value={mpesaCode}
-                onChange={(e) => setMpesaCode(e.target.value.toUpperCase())}
-                style={{ fontFamily: 'monospace', fontSize: '16px', letterSpacing: '0.1em' }}
-              />
-              <small style={{ color: '#888', fontSize: '12px' }}>
-                This is the code in the M-Pesa SMS confirmation message
-              </small>
-            </div>
-
-            <button className="btn-primary" style={{ width: '100%', padding: '14px', fontSize: '15px' }} onClick={handleSubmit}>
-              Submit Payment for Verification
-            </button>
-
-            <p style={{ textAlign: 'center', fontSize: '12px', color: '#aaa', marginTop: '12px' }}>
-              Your plan will be activated within 24 hours after verification
-            </p>
-          </div>
-        )}
-
-        {submitted && (
-          <div style={{ textAlign: 'center', padding: '40px 24px' }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎉</div>
-            <h3 style={{ color: '#1D9E75', marginBottom: '8px' }}>Payment Submitted!</h3>
-            <p style={{ color: '#555', marginBottom: '16px' }}>
-              Your payment is being verified. Your plan will be activated within 24 hours.
-            </p>
-            <p style={{ color: '#888', fontSize: '13px', marginBottom: '24px' }}>
-              For faster activation send your M-Pesa code <strong>{mpesaCode}</strong> to WhatsApp:
-            </p>
-            <button
-              className="btn-primary"
-              style={{ marginBottom: '12px', width: '100%' }}
-              onClick={() => {
-                const text = encodeURIComponent(
-                  `💰 *Loan Manager Subscription*\n\n` +
-                  `Plan: ${PLANS[selectedPlan]?.name} (${billing})\n` +
-                  `Amount: KSh ${getAmount(selectedPlan)?.toLocaleString()}\n` +
-                  `M-Pesa Code: *${mpesaCode}*\n` +
-                  `Phone: ${phone}\n\n` +
-                  `Please activate my account. Thank you!`
-                )
-                window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${text}`, '_blank')
-              }}
-            >
-              📲 Send via WhatsApp for faster activation
-            </button>
-            <button className="btn-secondary" style={{ width: '100%' }} onClick={onClose}>
-              Close
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ─── Limit Banner Component ───────────────────────────────────────────────────
-
-function LimitBanner({ message, onUpgrade }) {
-  return (
-    <div style={{
-      background: '#fff3cd',
-      border: '1px solid #ffc107',
-      borderRadius: '10px',
-      padding: '16px 20px',
-      marginBottom: '16px',
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center'
-    }}>
-      <div>
-        <p style={{ margin: 0, fontWeight: 600, color: '#856404', fontSize: '14px' }}>⚠️ {message}</p>
-        <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#856404' }}>Upgrade your plan to continue</p>
-      </div>
-      <button className="btn-primary" style={{ fontSize: '13px', whiteSpace: 'nowrap' }} onClick={onUpgrade}>
-        Upgrade Now
-      </button>
-    </div>
-  )
-}
-
-// ─── Trial Banner Component ───────────────────────────────────────────────────
-
-function TrialBanner({ daysLeft, onUpgrade }) {
-  return (
-    <div style={{
-      background: '#E1F5EE',
-      borderBottom: '1px solid #9FE1CB',
-      padding: '10px 24px',
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center'
-    }}>
-      <p style={{ margin: 0, fontSize: '13px', color: '#0F6E56' }}>
-        🎁 <strong>{daysLeft} days</strong> left in your free trial
-      </p>
-      <button
-        style={{ fontSize: '12px', background: '#1D9E75', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer' }}
-        onClick={onUpgrade}
-      >
-        Upgrade Now
-      </button>
-    </div>
-  )
-}
-
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 function App() {
@@ -496,32 +267,6 @@ function App() {
   const [showLoanDetail, setShowLoanDetail] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showReceipt, setShowReceipt] = useState(false)
-  const [showPricing, setShowPricing] = useState(false)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const sanitize = (str) => {
-  if (typeof str !== 'string') return str
-  return str.replace(/[<>{}]/g, '').trim()
-}
-
-useEffect(() => {
-  let timeout
-  const resetTimer = () => {
-    clearTimeout(timeout)
-    timeout = setTimeout(() => {
-      if (user) {
-        logout()
-        alert('You have been logged out due to inactivity.')
-      }
-    }, 30 * 60 * 1000)
-  }
-  const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart']
-  events.forEach(e => window.addEventListener(e, resetTimer))
-  resetTimer()
-  return () => {
-    clearTimeout(timeout)
-    events.forEach(e => window.removeEventListener(e, resetTimer))
-  }
-}, [user])
   const [lastTxn, setLastTxn] = useState(null)
   const [selectedLoan, setSelectedLoan] = useState(null)
   const [borrowers, setBorrowers] = useState([])
@@ -531,71 +276,52 @@ useEffect(() => {
   const [authError, setAuthError] = useState('')
   const [phoneStep, setPhoneStep] = useState('phone')
   const [confirmationResult, setConfirmationResult] = useState(null)
-  const [userPlan, setUserPlan] = useState({
-    plan: 'free',
-    billing: 'monthly',
-    trialStart: null,
-    trialEnd: null,
-    status: 'active'
-  })
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [currencyDropdownOpen, setCurrencyDropdownOpen] = useState(false)
 
   const [loginData, setLoginData] = useState({ email: '', password: '' })
   const [signupData, setSignupData] = useState({ email: '', password: '', confirmPassword: '' })
   const [phoneData, setPhoneData] = useState({ phone: '', otp: '' })
   const [newBorrower, setNewBorrower] = useState({ name: '', phone: '', idNumber: '', email: '', notes: '' })
   const [newLoan, setNewLoan] = useState({
-    borrowerName: '', currency: 'KSh', principal: '', interestRate: '',
-    duration: '', frequency: 'Monthly', startDate: '', notes: '', status: 'active'
+    borrowerName: '', currency: 'KSh', currencySearch: 'KSh',
+    principal: '', interestRate: '', duration: '',
+    frequency: 'Monthly', startDate: '', notes: '', status: 'active'
   })
   const [paymentData, setPaymentData] = useState({
     amountPaid: '', method: 'M-Pesa', referenceCode: '',
     datePaid: new Date().toISOString().split('T')[0], notes: ''
   })
 
-  const trialDaysLeft = () => {
-    if (!userPlan.trialEnd) return 0
-    const diff = new Date(userPlan.trialEnd) - new Date()
-    return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)))
+  const sanitize = (str) => {
+    if (typeof str !== 'string') return str
+    return str.replace(/[<>{}]/g, '').trim()
   }
-
-  const isOnTrial = () => userPlan.plan !== 'free' && userPlan.status === 'trial' && trialDaysLeft() > 0
-
-  const canAddBorrower = () => {
-    const limit = PLANS[userPlan.plan]?.borrowerLimit
-    if (!limit) return true
-    return borrowers.length < limit
-  }
-
-  const canAddLoan = () => {
-    const limit = PLANS[userPlan.plan]?.loanLimit
-    if (!limit) return true
-    return loans.length < limit
-  }
-
-  const currentPlanName = () => PLANS[userPlan.plan]?.name || 'Free'
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    let timeout
+    const resetTimer = () => {
+      clearTimeout(timeout)
+      timeout = setTimeout(() => {
+        if (user) {
+          logout()
+          alert('You have been logged out due to inactivity.')
+        }
+      }, 30 * 60 * 1000)
+    }
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart']
+    events.forEach(e => window.addEventListener(e, resetTimer))
+    resetTimer()
+    return () => {
+      clearTimeout(timeout)
+      events.forEach(e => window.removeEventListener(e, resetTimer))
+    }
+  }, [user])
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser)
       setAuthLoading(false)
-      if (currentUser) {
-        const planDoc = await getDoc(doc(db, 'plans', currentUser.uid))
-        if (planDoc.exists()) {
-          setUserPlan(planDoc.data())
-        } else {
-          const trialEnd = new Date()
-          trialEnd.setDate(trialEnd.getDate() + 14)
-          const defaultPlan = {
-            plan: 'pro',
-            billing: 'monthly',
-            status: 'trial',
-            trialStart: new Date().toISOString(),
-            trialEnd: trialEnd.toISOString()
-          }
-          await setDoc(doc(db, 'plans', currentUser.uid), defaultPlan)
-          setUserPlan(defaultPlan)
-        }
-      }
     })
     return () => unsubscribe()
   }, [])
@@ -626,20 +352,6 @@ useEffect(() => {
     })
     return () => unsubscribe()
   }, [user])
-
-  const handleSubmitPayment = async (paymentInfo) => {
-    try {
-      await addDoc(collection(db, 'subscriptionRequests'), {
-        userId: user.uid,
-        email: user.email || user.phoneNumber,
-        ...paymentInfo,
-        status: 'pending',
-        createdAt: new Date().toISOString()
-      })
-    } catch (error) {
-      console.error('Error submitting payment:', error)
-    }
-  }
 
   const generateTxnCode = () => {
     const series = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
@@ -705,13 +417,16 @@ useEffect(() => {
     const nextDueDate = nextUnpaid ? nextUnpaid.dueDate : 'Cleared'
     try {
       await updateDoc(doc(db, 'loans', selectedLoan.id), {
-        remainingBalance: newRemainingBalance, installments: updatedInstallments, status: newStatus, nextDueDate
+        remainingBalance: newRemainingBalance, installments: updatedInstallments,
+        status: newStatus, nextDueDate
       })
       const txnRecord = {
-        userId: user.uid, loanId: selectedLoan.id, borrowerName: selectedLoan.borrowerName,
-        txnCode, amountPaid, method: paymentData.method, referenceCode: paymentData.referenceCode,
-        datePaid: paymentData.datePaid, notes: paymentData.notes, remainingBalance: newRemainingBalance,
-        installmentsCovered: paidInstallments, currency: selectedLoan.currency, createdAt: new Date().toISOString()
+        userId: user.uid, loanId: selectedLoan.id,
+        borrowerName: selectedLoan.borrowerName, txnCode, amountPaid,
+        method: paymentData.method, referenceCode: paymentData.referenceCode,
+        datePaid: paymentData.datePaid, notes: paymentData.notes,
+        remainingBalance: newRemainingBalance, installmentsCovered: paidInstallments,
+        currency: selectedLoan.currency, createdAt: new Date().toISOString()
       }
       await addDoc(collection(db, 'transactions'), txnRecord)
       const borrower = borrowers.find(b => b.name === selectedLoan.borrowerName)
@@ -731,73 +446,55 @@ useEffect(() => {
     setAuthError('')
     if (!loginData.email || !loginData.password) { setAuthError('Please fill in all fields'); return }
     try {
-      await signInWithEmailAndPassword(auth, loginData.email, loginData.password)
-    } catch (error) { setAuthError('Invalid email or password. Please try again.') }
-  }
-
-  const loginWithEmail = async () => {
-  setAuthError('')
-  if (!loginData.email || !loginData.password) {
-    setAuthError('Please fill in all fields')
-    return
-  }
-  try {
-    const userCredential = await signInWithEmailAndPassword(
-      auth, loginData.email, loginData.password
-    )
-    if (!userCredential.user.emailVerified) {
-      await signOut(auth)
-      setAuthError('Please verify your email first. Check your inbox for a verification link.')
-      return
+      const userCredential = await signInWithEmailAndPassword(auth, loginData.email, loginData.password)
+      if (!userCredential.user.emailVerified) {
+        await signOut(auth)
+        setAuthError('Please verify your email first. Check your inbox for a verification link.')
+        return
+      }
+    } catch (error) {
+      setAuthError('Invalid email or password. Please try again.')
     }
-  } catch (error) {
-    setAuthError('Invalid email or password. Please try again.')
   }
-}
 
   const signupWithEmail = async () => {
-  setAuthError('')
-  if (!signupData.email || !signupData.password || !signupData.confirmPassword) {
-    setAuthError('Please fill in all fields')
-    return
-  }
-  if (signupData.password !== signupData.confirmPassword) {
-    setAuthError('Passwords do not match')
-    return
-  }
-  if (signupData.password.length < 12) {
-    setAuthError('Password must be at least 12 characters')
-    return
-  }
-  if (!/[A-Z]/.test(signupData.password)) {
-    setAuthError('Password must contain at least one uppercase letter')
-    return
-  }
-  if (!/[0-9]/.test(signupData.password)) {
-    setAuthError('Password must contain at least one number')
-    return
-  }
-  if (!/[!@#$%^&*]/.test(signupData.password)) {
-    setAuthError('Password must contain at least one special character e.g. !@#$%')
-    return
-  }
-  try {
-    const userCredential = await createUserWithEmailAndPassword(
-      auth, signupData.email, signupData.password
-    )
-    await sendEmailVerification(userCredential.user)
-    await signOut(auth)
-    setAuthPage('login')
     setAuthError('')
-    alert('✅ Account created! Please check your email and click the verification link before logging in.')
-  } catch (error) {
-    if (error.code === 'auth/email-already-in-use') {
-      setAuthError('Email already in use. Please login instead.')
-    } else {
-      setAuthError('Error creating account. Please try again.')
+    if (!signupData.email || !signupData.password || !signupData.confirmPassword) {
+      setAuthError('Please fill in all fields'); return
+    }
+    if (signupData.password !== signupData.confirmPassword) {
+      setAuthError('Passwords do not match'); return
+    }
+    if (signupData.password.length < 8) {
+      setAuthError('Password must be at least 8 characters'); return
+    }
+    if (signupData.password.length > 12) {
+      setAuthError('Password must not exceed 12 characters'); return
+    }
+    if (!/[A-Z]/.test(signupData.password)) {
+      setAuthError('Password must contain at least one uppercase letter'); return
+    }
+    if (!/[0-9]/.test(signupData.password)) {
+      setAuthError('Password must contain at least one number'); return
+    }
+    if (!/[!@#$%^&*]/.test(signupData.password)) {
+      setAuthError('Password must contain at least one special character e.g. !@#$%'); return
+    }
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, signupData.email, signupData.password)
+      await sendEmailVerification(userCredential.user)
+      await signOut(auth)
+      setAuthPage('login')
+      alert('✅ Account created! Please check your email and click the verification link before logging in.')
+    } catch (error) {
+      if (error.code === 'auth/email-already-in-use') {
+        setAuthError('Email already in use. Please login instead.')
+      } else {
+        setAuthError('Error creating account. Please try again.')
+      }
     }
   }
-}
+
   const loginWithGoogle = async () => {
     setAuthError('')
     try { await signInWithPopup(auth, googleProvider) }
@@ -818,7 +515,7 @@ useEffect(() => {
       const result = await signInWithPhoneNumber(auth, phoneData.phone, window.recaptchaVerifier)
       setConfirmationResult(result)
       setPhoneStep('otp')
-    } catch (error) { setAuthError('Error sending OTP. Make sure phone number includes country code e.g. +254712345678') }
+    } catch (error) { setAuthError('Error sending OTP. Include country code e.g. +254712345678') }
   }
 
   const verifyOTP = async () => {
@@ -839,16 +536,15 @@ useEffect(() => {
     if (!newBorrower.name || !newBorrower.phone || !newBorrower.idNumber || !newBorrower.email) {
       alert('Please fill in all required fields'); return
     }
-    if (!canAddBorrower()) {
-      setShowPricing(true); return
-    }
     try {
-      await addDoc(collection(db, 'borrowers'), {   name: sanitize(newBorrower.name),
-  phone: sanitize(newBorrower.phone),
-  idNumber: sanitize(newBorrower.idNumber),
-  email: sanitize(newBorrower.email),
-  notes: sanitize(newBorrower.notes),
-  userId: user.uid})
+      await addDoc(collection(db, 'borrowers'), {
+        name: sanitize(newBorrower.name),
+        phone: sanitize(newBorrower.phone),
+        idNumber: sanitize(newBorrower.idNumber),
+        email: sanitize(newBorrower.email),
+        notes: sanitize(newBorrower.notes),
+        userId: user.uid
+      })
       setNewBorrower({ name: '', phone: '', idNumber: '', email: '', notes: '' })
       setShowModal(false)
     } catch (error) { alert('Error saving borrower. Please try again.'); console.error(error) }
@@ -863,9 +559,10 @@ useEffect(() => {
     if (!newLoan.borrowerName || !newLoan.principal || !newLoan.interestRate || !newLoan.duration || !newLoan.startDate) {
       alert('Please fill in all required fields'); return
     }
-    if (!canAddLoan()) { setShowPricing(true); return }
     const alreadyHasLoan = loans.find(l => l.borrowerName === newLoan.borrowerName && l.status === 'active')
-    if (alreadyHasLoan) { alert(`${newLoan.borrowerName} already has an active loan. They must clear it first.`); return }
+    if (alreadyHasLoan) {
+      alert(`${newLoan.borrowerName} already has an active loan. They must clear it first.`); return
+    }
     const principal = Number(newLoan.principal)
     const interestAmount = principal * Number(newLoan.interestRate) / 100
     const totalExpected = principal + interestAmount
@@ -883,10 +580,14 @@ useEffect(() => {
       else if (newLoan.frequency === 'Daily') dueDate.setDate(dueDate.getDate() + (i + 1))
       installments.push({ number: i + 1, dueDate: dueDate.toDateString(), amountDue: installmentAmount, amountPaid: 0, status: 'pending', txnCode: null })
     }
-    const loan = { ...newLoan, principal, interestAmount, totalExpected, installmentAmount, remainingBalance: totalExpected, nextDueDate: nextDueDate.toDateString(), installments, userId: user.uid }
+    const loan = {
+      ...newLoan, principal, interestAmount, totalExpected, installmentAmount,
+      remainingBalance: totalExpected, nextDueDate: nextDueDate.toDateString(),
+      installments, userId: user.uid
+    }
     try {
       await addDoc(collection(db, 'loans'), loan)
-      setNewLoan({ borrowerName: '', currency: 'KSh', principal: '', interestRate: '', duration: '', frequency: 'Monthly', startDate: '', notes: '', status: 'active' })
+      setNewLoan({ borrowerName: '', currency: 'KSh', currencySearch: 'KSh', principal: '', interestRate: '', duration: '', frequency: 'Monthly', startDate: '', notes: '', status: 'active' })
       setShowLoanModal(false)
     } catch (error) { alert('Error saving loan. Please try again.'); console.error(error) }
   }
@@ -929,25 +630,46 @@ useEffect(() => {
             <button className={authPage === 'phone' ? 'auth-tab active' : 'auth-tab'} onClick={() => { setAuthPage('phone'); setAuthError('') }}>Phone</button>
           </div>
           {authError && <div className="auth-error">{authError}</div>}
+
           {authPage === 'login' && (
             <div>
-              <div className="form-group"><label>Email Address</label><input type="email" placeholder="your@email.com" value={loginData.email} onChange={(e) => setLoginData({ ...loginData, email: e.target.value })} /></div>
-              <div className="form-group"><label>Password</label><input type="password" placeholder="Your password" value={loginData.password} onChange={(e) => setLoginData({ ...loginData, password: e.target.value })} /></div>
+              <div className="form-group">
+                <label>Email Address</label>
+                <input type="email" placeholder="your@email.com" value={loginData.email} onChange={(e) => setLoginData({ ...loginData, email: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label>Password</label>
+                <input type="password" placeholder="Your password" value={loginData.password} onChange={(e) => setLoginData({ ...loginData, password: e.target.value })} />
+              </div>
               <button className="btn-primary auth-btn" onClick={loginWithEmail}>Login</button>
               <div className="auth-divider">or</div>
               <button className="btn-google" onClick={loginWithGoogle}>🔵 Continue with Google</button>
             </div>
           )}
+
           {authPage === 'signup' && (
             <div>
-              <div className="form-group"><label>Email Address</label><input type="email" placeholder="your@email.com" value={signupData.email} onChange={(e) => setSignupData({ ...signupData, email: e.target.value })} /></div>
-              <div className="form-group"><label>Password (min 12 characters)</label><input type="password" placeholder="Uppercase, number and special character required" value={signupData.password} onChange={(e) => setSignupData({ ...signupData, password: e.target.value })} /></div>
-              <div className="form-group"><label>Confirm Password</label><input type="password" placeholder="Repeat your password" value={signupData.confirmPassword} onChange={(e) => setSignupData({ ...signupData, confirmPassword: e.target.value })} /></div>
+              <div className="form-group">
+                <label>Email Address</label>
+                <input type="email" placeholder="your@email.com" value={signupData.email} onChange={(e) => setSignupData({ ...signupData, email: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label>Password (8-12 characters)</label>
+                <input type="password" placeholder="Uppercase, number and special character" value={signupData.password} onChange={(e) => setSignupData({ ...signupData, password: e.target.value })} />
+                <small style={{ color: '#888', fontSize: '12px', marginTop: '4px', display: 'block' }}>
+                  Must have: 8-12 characters, uppercase letter, number and special character (!@#$%)
+                </small>
+              </div>
+              <div className="form-group">
+                <label>Confirm Password</label>
+                <input type="password" placeholder="Repeat your password" value={signupData.confirmPassword} onChange={(e) => setSignupData({ ...signupData, confirmPassword: e.target.value })} />
+              </div>
               <button className="btn-primary auth-btn" onClick={signupWithEmail}>Create Account</button>
               <div className="auth-divider">or</div>
               <button className="btn-google" onClick={loginWithGoogle}>🔵 Continue with Google</button>
             </div>
           )}
+
           {authPage === 'phone' && (
             <div>
               {phoneStep === 'phone' && (
@@ -964,7 +686,10 @@ useEffect(() => {
               {phoneStep === 'otp' && (
                 <div>
                   <p style={{ color: '#555', marginBottom: '16px', fontSize: '14px' }}>Enter the 6 digit code sent to {phoneData.phone}</p>
-                  <div className="form-group"><label>OTP Code</label><input type="text" placeholder="123456" value={phoneData.otp} onChange={(e) => setPhoneData({ ...phoneData, otp: e.target.value })} /></div>
+                  <div className="form-group">
+                    <label>OTP Code</label>
+                    <input type="text" placeholder="123456" value={phoneData.otp} onChange={(e) => setPhoneData({ ...phoneData, otp: e.target.value })} />
+                  </div>
                   <button className="btn-primary auth-btn" onClick={verifyOTP}>Verify OTP</button>
                   <button className="btn-secondary auth-btn" style={{ marginTop: '8px' }} onClick={() => setPhoneStep('phone')}>← Change number</button>
                 </div>
@@ -979,48 +704,30 @@ useEffect(() => {
 
   return (
     <div>
-      {isOnTrial() && (
-        <TrialBanner daysLeft={trialDaysLeft()} onUpgrade={() => setShowPricing(true)} />
-      )}
-<nav>
-  <h1>💰 Loan Manager</h1>
-  <div className="nav-links">
-    {isOnTrial() && (
-      <span style={{ color: '#1D9E75', fontSize: '12px' }}>
-        🎁 {trialDaysLeft()} days trial
-      </span>
-    )}
-    <button onClick={() => { setPage('dashboard'); setSelectedBorrower(null) }}>Dashboard</button>
-    <button onClick={() => { setPage('borrowers'); setSelectedBorrower(null) }}>Borrowers</button>
-    <button onClick={() => { setPage('loans'); setSelectedBorrower(null) }}>Loans</button>
-    <button onClick={() => { setPage('reports'); setSelectedBorrower(null) }}>Reports</button>
-    <button
-      style={{ background: '#1D9E75', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
-      onClick={() => setShowPricing(true)}
-    >
-      ⭐ {currentPlanName()}
-    </button>
-    <span style={{ color: '#fff', fontSize: '13px', opacity: 0.7 }}>
-      {user.email || user.phoneNumber || 'User'}
-    </span>
-    <button className="btn-logout" onClick={logout}>Logout</button>
-  </div>
+      <nav>
+        <h1>💰 Loan Manager</h1>
+        <div className="nav-links">
+          <button onClick={() => { setPage('dashboard'); setSelectedBorrower(null) }}>Dashboard</button>
+          <button onClick={() => { setPage('borrowers'); setSelectedBorrower(null) }}>Borrowers</button>
+          <button onClick={() => { setPage('loans'); setSelectedBorrower(null) }}>Loans</button>
+          <button onClick={() => { setPage('reports'); setSelectedBorrower(null) }}>Reports</button>
+          <span style={{ color: '#fff', fontSize: '13px', opacity: 0.7 }}>{user.email || user.phoneNumber || 'User'}</span>
+          <button className="btn-logout" onClick={logout}>Logout</button>
+        </div>
+        <button className="hamburger" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+      </nav>
 
-  <button className="hamburger" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-    <span></span>
-    <span></span>
-    <span></span>
-  </button>
-</nav>
-
-<div className={`mobile-menu ${mobileMenuOpen ? 'open' : ''}`}>
-  <button onClick={() => { setPage('dashboard'); setSelectedBorrower(null); setMobileMenuOpen(false) }}>📊 Dashboard</button>
-  <button onClick={() => { setPage('borrowers'); setSelectedBorrower(null); setMobileMenuOpen(false) }}>👥 Borrowers</button>
-  <button onClick={() => { setPage('loans'); setSelectedBorrower(null); setMobileMenuOpen(false) }}>💰 Loans</button>
-  <button onClick={() => { setPage('reports'); setSelectedBorrower(null); setMobileMenuOpen(false) }}>📋 Reports</button>
-  <button onClick={() => { setShowPricing(true); setMobileMenuOpen(false) }}>⭐ {currentPlanName()} Plan</button>
-  <button onClick={logout} style={{ color: '#e74c3c', borderColor: '#e74c3c' }}>🚪 Logout</button>
-</div>
+      <div className={`mobile-menu ${mobileMenuOpen ? 'open' : ''}`}>
+        <button onClick={() => { setPage('dashboard'); setSelectedBorrower(null); setMobileMenuOpen(false) }}>📊 Dashboard</button>
+        <button onClick={() => { setPage('borrowers'); setSelectedBorrower(null); setMobileMenuOpen(false) }}>👥 Borrowers</button>
+        <button onClick={() => { setPage('loans'); setSelectedBorrower(null); setMobileMenuOpen(false) }}>💰 Loans</button>
+        <button onClick={() => { setPage('reports'); setSelectedBorrower(null); setMobileMenuOpen(false) }}>📋 Reports</button>
+        <button onClick={logout} style={{ color: '#e74c3c', borderColor: '#e74c3c' }}>🚪 Logout</button>
+      </div>
 
       <div className="content">
 
@@ -1028,25 +735,9 @@ useEffect(() => {
           <PaymentReceipt txn={lastTxn} loan={lastTxn.loan} onClose={() => { setShowReceipt(false); setLastTxn(null) }} />
         )}
 
-        {showPricing && (
-          <PricingModal
-            currentPlan={userPlan.plan}
-            onClose={() => setShowPricing(false)}
-            onSubmitPayment={handleSubmitPayment}
-          />
-        )}
-
         {page === 'dashboard' && (
           <div>
             <h2>Dashboard</h2>
-
-            {!canAddBorrower() && (
-              <LimitBanner
-                message={`You have reached the ${PLANS[userPlan.plan]?.borrowerLimit} borrower limit on your ${currentPlanName()} plan`}
-                onUpgrade={() => setShowPricing(true)}
-              />
-            )}
-
             <div className="cards">
               <div className="card neutral"><p>Active Loans</p><h3>{loans.filter(l => l.status === 'active').length}</h3></div>
               <div className="card neutral"><p>Total Lent</p><h3>{loans.reduce((sum, l) => sum + l.principal, 0).toLocaleString()}</h3></div>
@@ -1056,25 +747,26 @@ useEffect(() => {
               <div className="card neutral"><p>Remaining Balance</p><h3>{loans.reduce((sum, l) => sum + l.remainingBalance, 0).toLocaleString()}</h3></div>
               <div className="card red"><p>Overdue Loans</p><h3>{loans.filter(l => l.status === 'overdue').length}</h3></div>
             </div>
-
             {transactions.length > 0 && (
               <div className="profile-card" style={{ marginTop: '24px' }}>
                 <h3>Recent Transactions</h3>
-                <table className="report-table">
-                  <thead><tr><th>TXN Code</th><th>Borrower</th><th>Amount</th><th>Method</th><th>Date</th><th>Installments</th></tr></thead>
-                  <tbody>
-                    {transactions.slice(-5).reverse().map((txn, i) => (
-                      <tr key={i}>
-                        <td style={{ fontWeight: 600, color: '#1a1a2e' }}>{txn.txnCode}</td>
-                        <td>{txn.borrowerName}</td>
-                        <td style={{ color: '#1D9E75', fontWeight: 600 }}>{txn.currency} {txn.amountPaid.toLocaleString()}</td>
-                        <td>{txn.method}</td>
-                        <td>{txn.datePaid}</td>
-                        <td>{txn.installmentsCovered?.join(', ')}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="table-wrapper">
+                  <table className="report-table">
+                    <thead><tr><th>TXN Code</th><th>Borrower</th><th>Amount</th><th>Method</th><th>Date</th><th>Installments</th></tr></thead>
+                    <tbody>
+                      {transactions.slice(-5).reverse().map((txn, i) => (
+                        <tr key={i}>
+                          <td style={{ fontWeight: 600, color: '#1a1a2e' }}>{txn.txnCode}</td>
+                          <td>{txn.borrowerName}</td>
+                          <td style={{ color: '#1D9E75', fontWeight: 600 }}>{txn.currency} {txn.amountPaid.toLocaleString()}</td>
+                          <td>{txn.method}</td>
+                          <td>{txn.datePaid}</td>
+                          <td>{txn.installmentsCovered?.join(', ')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
@@ -1084,23 +776,8 @@ useEffect(() => {
           <div>
             <div className="page-header">
               <h2>Borrowers</h2>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span style={{ fontSize: '13px', color: '#888' }}>
-                  {borrowers.length}/{PLANS[userPlan.plan]?.borrowerLimit || '∞'}
-                </span>
-                <button className="btn-primary" onClick={() => { if (!canAddBorrower()) { setShowPricing(true) } else { setShowModal(true) } }}>
-                  + Add Borrower
-                </button>
-              </div>
+              <button className="btn-primary" onClick={() => setShowModal(true)}>+ Add Borrower</button>
             </div>
-
-            {!canAddBorrower() && (
-              <LimitBanner
-                message={`Borrower limit reached on ${currentPlanName()} plan`}
-                onUpgrade={() => setShowPricing(true)}
-              />
-            )}
-
             {borrowers.length === 0 ? (
               <div className="no-borrowers"><p>No borrowers yet. Add your first borrower!</p></div>
             ) : (
@@ -1113,7 +790,7 @@ useEffect(() => {
                         <h4>{borrower.name}</h4>
                         <p>{borrower.phone} · ID: {borrower.idNumber}</p>
                         <p>{borrower.email}</p>
-                        <p>{stats.totalLoans} loan(s) · {stats.activeLoans > 0 ? <span style={{ color: '#E8593C' }}> 🟡 Active</span> : <span style={{ color: '#1D9E75' }}> ✅ Clear</span>}</p>
+                        <p>{stats.totalLoans} loan(s) · {stats.activeLoans > 0 ? <span style={{ color: '#E8593C' }}>🟡 Active</span> : <span style={{ color: '#1D9E75' }}>✅ Clear</span>}</p>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
                         <button className="btn-danger" onClick={(e) => { e.stopPropagation(); deleteBorrower(borrower.id) }}>Delete</button>
@@ -1124,7 +801,6 @@ useEffect(() => {
                 })}
               </div>
             )}
-
             {showModal && (
               <div className="modal-overlay">
                 <div className="modal">
@@ -1183,22 +859,24 @@ useEffect(() => {
               {getBorrowerLoans(selectedBorrower.name).length === 0 ? (
                 <p style={{ color: '#888', padding: '16px 0' }}>No loans yet for this borrower.</p>
               ) : (
-                <table className="report-table">
-                  <thead><tr><th>Principal</th><th>Interest</th><th>Total</th><th>Remaining</th><th>Frequency</th><th>Next Due</th><th>Status</th></tr></thead>
-                  <tbody>
-                    {getBorrowerLoans(selectedBorrower.name).map((loan, i) => (
-                      <tr key={i}>
-                        <td>{loan.currency} {loan.principal.toLocaleString()}</td>
-                        <td>{loan.currency} {loan.interestAmount.toLocaleString()}</td>
-                        <td>{loan.currency} {loan.totalExpected.toLocaleString()}</td>
-                        <td>{loan.currency} {loan.remainingBalance.toLocaleString()}</td>
-                        <td>{loan.frequency}</td>
-                        <td>{loan.nextDueDate}</td>
-                        <td><span className={`status-badge status-${loan.status}`}>{loan.status === 'active' && '🟡 Active'}{loan.status === 'cleared' && '✅ Cleared'}{loan.status === 'overdue' && '🔴 Overdue'}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="table-wrapper">
+                  <table className="report-table">
+                    <thead><tr><th>Principal</th><th>Interest</th><th>Total</th><th>Remaining</th><th>Frequency</th><th>Next Due</th><th>Status</th></tr></thead>
+                    <tbody>
+                      {getBorrowerLoans(selectedBorrower.name).map((loan, i) => (
+                        <tr key={i}>
+                          <td>{loan.currency} {loan.principal.toLocaleString()}</td>
+                          <td>{loan.currency} {loan.interestAmount.toLocaleString()}</td>
+                          <td>{loan.currency} {loan.totalExpected.toLocaleString()}</td>
+                          <td>{loan.currency} {loan.remainingBalance.toLocaleString()}</td>
+                          <td>{loan.frequency}</td>
+                          <td>{loan.nextDueDate}</td>
+                          <td><span className={`status-badge status-${loan.status}`}>{loan.status === 'active' && '🟡 Active'}{loan.status === 'cleared' && '✅ Cleared'}{loan.status === 'overdue' && '🔴 Overdue'}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
             <div className="profile-card" style={{ marginTop: '16px' }}>
@@ -1206,24 +884,26 @@ useEffect(() => {
               {getBorrowerLoans(selectedBorrower.name).length === 0 ? (
                 <p style={{ color: '#888', padding: '16px 0' }}>No transactions yet.</p>
               ) : (
-                <table className="report-table">
-                  <thead><tr><th>TXN Code</th><th>Amount Paid</th><th>Method</th><th>Reference</th><th>Date</th><th>Installments</th><th>Balance After</th></tr></thead>
-                  <tbody>
-                    {getBorrowerLoans(selectedBorrower.name).flatMap(loan =>
-                      getLoanTransactions(loan.id).map((txn, i) => (
-                        <tr key={i}>
-                          <td style={{ fontWeight: 600, color: '#1a1a2e' }}>{txn.txnCode}</td>
-                          <td style={{ color: '#1D9E75', fontWeight: 600 }}>{txn.currency} {txn.amountPaid.toLocaleString()}</td>
-                          <td>{txn.method}</td>
-                          <td>{txn.referenceCode}</td>
-                          <td>{txn.datePaid}</td>
-                          <td>{txn.installmentsCovered?.join(', ')}</td>
-                          <td style={{ color: '#e74c3c', fontWeight: 600 }}>{txn.currency} {txn.remainingBalance.toLocaleString()}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                <div className="table-wrapper">
+                  <table className="report-table">
+                    <thead><tr><th>TXN Code</th><th>Amount Paid</th><th>Method</th><th>Reference</th><th>Date</th><th>Installments</th><th>Balance After</th></tr></thead>
+                    <tbody>
+                      {getBorrowerLoans(selectedBorrower.name).flatMap(loan =>
+                        getLoanTransactions(loan.id).map((txn, i) => (
+                          <tr key={i}>
+                            <td style={{ fontWeight: 600, color: '#1a1a2e' }}>{txn.txnCode}</td>
+                            <td style={{ color: '#1D9E75', fontWeight: 600 }}>{txn.currency} {txn.amountPaid.toLocaleString()}</td>
+                            <td>{txn.method}</td>
+                            <td>{txn.referenceCode}</td>
+                            <td>{txn.datePaid}</td>
+                            <td>{txn.installmentsCovered?.join(', ')}</td>
+                            <td style={{ color: '#e74c3c', fontWeight: 600 }}>{txn.currency} {txn.remainingBalance.toLocaleString()}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           </div>
@@ -1233,18 +913,8 @@ useEffect(() => {
           <div>
             <div className="page-header">
               <h2>Loans</h2>
-              <button className="btn-primary" onClick={() => { if (!canAddLoan()) { setShowPricing(true) } else { setShowLoanModal(true) } }}>
-                + Add Loan
-              </button>
+              <button className="btn-primary" onClick={() => setShowLoanModal(true)}>+ Add Loan</button>
             </div>
-
-            {!canAddLoan() && (
-              <LimitBanner
-                message={`Loan limit reached on ${currentPlanName()} plan`}
-                onUpgrade={() => setShowPricing(true)}
-              />
-            )}
-
             {loans.length === 0 ? (
               <div className="no-borrowers"><p>No loans yet. Add your first loan!</p></div>
             ) : (
@@ -1295,44 +965,48 @@ useEffect(() => {
                   </div>
                   <div style={{ marginTop: '20px' }}>
                     <h4 style={{ marginBottom: '12px', color: '#1a1a2e' }}>Installment Schedule</h4>
-                    <table className="report-table">
-                      <thead><tr><th>#</th><th>Due Date</th><th>Amount Due</th><th>Amount Paid</th><th>TXN Code</th><th>Status</th></tr></thead>
-                      <tbody>
-                        {(selectedLoan.installments || []).map((inst, i) => (
-                          <tr key={i}>
-                            <td>{inst.number}</td>
-                            <td>{inst.dueDate}</td>
-                            <td>{selectedLoan.currency} {inst.amountDue.toLocaleString()}</td>
-                            <td style={{ color: '#1D9E75', fontWeight: 600 }}>{selectedLoan.currency} {(inst.amountPaid || 0).toLocaleString()}</td>
-                            <td style={{ fontSize: '12px', color: '#666' }}>{inst.txnCode || '—'}</td>
-                            <td>
-                              {inst.status === 'paid' && <span className="status-badge status-cleared">✅ Paid</span>}
-                              {inst.status === 'partial' && <span className="status-badge status-active">⚠️ Partial</span>}
-                              {inst.status === 'pending' && <span className="status-badge" style={{ background: '#f0f2f5', color: '#888' }}>⏳ Pending</span>}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  {getLoanTransactions(selectedLoan.id).length > 0 && (
-                    <div style={{ marginTop: '20px' }}>
-                      <h4 style={{ marginBottom: '12px', color: '#1a1a2e' }}>Transaction History</h4>
+                    <div className="table-wrapper">
                       <table className="report-table">
-                        <thead><tr><th>TXN Code</th><th>Amount</th><th>Method</th><th>Reference</th><th>Date</th><th>Balance After</th></tr></thead>
+                        <thead><tr><th>#</th><th>Due Date</th><th>Amount Due</th><th>Amount Paid</th><th>TXN Code</th><th>Status</th></tr></thead>
                         <tbody>
-                          {getLoanTransactions(selectedLoan.id).map((txn, i) => (
+                          {(selectedLoan.installments || []).map((inst, i) => (
                             <tr key={i}>
-                              <td style={{ fontWeight: 600, color: '#1a1a2e' }}>{txn.txnCode}</td>
-                              <td style={{ color: '#1D9E75', fontWeight: 600 }}>{txn.currency} {txn.amountPaid.toLocaleString()}</td>
-                              <td>{txn.method}</td>
-                              <td>{txn.referenceCode}</td>
-                              <td>{txn.datePaid}</td>
-                              <td style={{ color: '#e74c3c', fontWeight: 600 }}>{txn.currency} {txn.remainingBalance.toLocaleString()}</td>
+                              <td>{inst.number}</td>
+                              <td>{inst.dueDate}</td>
+                              <td>{selectedLoan.currency} {inst.amountDue.toLocaleString()}</td>
+                              <td style={{ color: '#1D9E75', fontWeight: 600 }}>{selectedLoan.currency} {(inst.amountPaid || 0).toLocaleString()}</td>
+                              <td style={{ fontSize: '12px', color: '#666' }}>{inst.txnCode || '—'}</td>
+                              <td>
+                                {inst.status === 'paid' && <span className="status-badge status-cleared">✅ Paid</span>}
+                                {inst.status === 'partial' && <span className="status-badge status-active">⚠️ Partial</span>}
+                                {inst.status === 'pending' && <span className="status-badge" style={{ background: '#f0f2f5', color: '#888' }}>⏳ Pending</span>}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  </div>
+                  {getLoanTransactions(selectedLoan.id).length > 0 && (
+                    <div style={{ marginTop: '20px' }}>
+                      <h4 style={{ marginBottom: '12px', color: '#1a1a2e' }}>Transaction History</h4>
+                      <div className="table-wrapper">
+                        <table className="report-table">
+                          <thead><tr><th>TXN Code</th><th>Amount</th><th>Method</th><th>Reference</th><th>Date</th><th>Balance After</th></tr></thead>
+                          <tbody>
+                            {getLoanTransactions(selectedLoan.id).map((txn, i) => (
+                              <tr key={i}>
+                                <td style={{ fontWeight: 600, color: '#1a1a2e' }}>{txn.txnCode}</td>
+                                <td style={{ color: '#1D9E75', fontWeight: 600 }}>{txn.currency} {txn.amountPaid.toLocaleString()}</td>
+                                <td>{txn.method}</td>
+                                <td>{txn.referenceCode}</td>
+                                <td>{txn.datePaid}</td>
+                                <td style={{ color: '#e74c3c', fontWeight: 600 }}>{txn.currency} {txn.remainingBalance.toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   )}
                   {selectedLoan.status !== 'cleared' && (
@@ -1402,107 +1076,39 @@ useEffect(() => {
                   </div>
                   <div className="form-group">
                     <label>Currency *</label>
-                    <select className="select-input" value={newLoan.currency} onChange={(e) => setNewLoan({ ...newLoan, currency: e.target.value })}>
-                      <optgroup label="Africa">
-                        <option value="KSh">KSh — Kenyan Shilling</option>
-                        <option value="UGX">UGX — Ugandan Shilling</option>
-                        <option value="TZS">TZS — Tanzanian Shilling</option>
-                        <option value="NGN">NGN — Nigerian Naira</option>
-                        <option value="ZAR">ZAR — South African Rand</option>
-                        <option value="GHS">GHS — Ghanaian Cedi</option>
-                        <option value="ETB">ETB — Ethiopian Birr</option>
-                        <option value="RWF">RWF — Rwandan Franc</option>
-                        <option value="XOF">XOF — West African CFA Franc</option>
-                        <option value="XAF">XAF — Central African CFA Franc</option>
-                        <option value="ZMW">ZMW — Zambian Kwacha</option>
-                        <option value="MWK">MWK — Malawian Kwacha</option>
-                        <option value="MZN">MZN — Mozambican Metical</option>
-                        <option value="BWP">BWP — Botswana Pula</option>
-                        <option value="NAD">NAD — Namibian Dollar</option>
-                        <option value="SOS">SOS — Somali Shilling</option>
-                        <option value="SDG">SDG — Sudanese Pound</option>
-                        <option value="DZD">DZD — Algerian Dinar</option>
-                        <option value="MAD">MAD — Moroccan Dirham</option>
-                        <option value="EGP">EGP — Egyptian Pound</option>
-                        <option value="TND">TND — Tunisian Dinar</option>
-                        <option value="LYD">LYD — Libyan Dinar</option>
-                        <option value="AOA">AOA — Angolan Kwanza</option>
-                        <option value="CDF">CDF — Congolese Franc</option>
-                        <option value="MGA">MGA — Malagasy Ariary</option>
-                        <option value="MUR">MUR — Mauritian Rupee</option>
-                        <option value="SCR">SCR — Seychellois Rupee</option>
-                      </optgroup>
-                      <optgroup label="Americas">
-                        <option value="USD">USD — US Dollar</option>
-                        <option value="CAD">CAD — Canadian Dollar</option>
-                        <option value="MXN">MXN — Mexican Peso</option>
-                        <option value="BRL">BRL — Brazilian Real</option>
-                        <option value="ARS">ARS — Argentine Peso</option>
-                        <option value="CLP">CLP — Chilean Peso</option>
-                        <option value="COP">COP — Colombian Peso</option>
-                        <option value="PEN">PEN — Peruvian Sol</option>
-                        <option value="UYU">UYU — Uruguayan Peso</option>
-                        <option value="PYG">PYG — Paraguayan Guaraní</option>
-                        <option value="BOB">BOB — Bolivian Boliviano</option>
-                        <option value="VES">VES — Venezuelan Bolívar</option>
-                        <option value="GTQ">GTQ — Guatemalan Quetzal</option>
-                        <option value="CRC">CRC — Costa Rican Colón</option>
-                        <option value="JMD">JMD — Jamaican Dollar</option>
-                        <option value="TTD">TTD — Trinidad Dollar</option>
-                      </optgroup>
-                      <optgroup label="Europe">
-                        <option value="EUR">EUR — Euro</option>
-                        <option value="GBP">GBP — British Pound</option>
-                        <option value="CHF">CHF — Swiss Franc</option>
-                        <option value="NOK">NOK — Norwegian Krone</option>
-                        <option value="SEK">SEK — Swedish Krona</option>
-                        <option value="DKK">DKK — Danish Krone</option>
-                        <option value="PLN">PLN — Polish Zloty</option>
-                        <option value="CZK">CZK — Czech Koruna</option>
-                        <option value="HUF">HUF — Hungarian Forint</option>
-                        <option value="RON">RON — Romanian Leu</option>
-                        <option value="HRK">HRK — Croatian Kuna</option>
-                        <option value="RUB">RUB — Russian Ruble</option>
-                        <option value="UAH">UAH — Ukrainian Hryvnia</option>
-                        <option value="TRY">TRY — Turkish Lira</option>
-                      </optgroup>
-                      <optgroup label="Asia">
-                        <option value="CNY">CNY — Chinese Yuan</option>
-                        <option value="JPY">JPY — Japanese Yen</option>
-                        <option value="INR">INR — Indian Rupee</option>
-                        <option value="KRW">KRW — South Korean Won</option>
-                        <option value="IDR">IDR — Indonesian Rupiah</option>
-                        <option value="MYR">MYR — Malaysian Ringgit</option>
-                        <option value="SGD">SGD — Singapore Dollar</option>
-                        <option value="THB">THB — Thai Baht</option>
-                        <option value="VND">VND — Vietnamese Dong</option>
-                        <option value="PHP">PHP — Philippine Peso</option>
-                        <option value="PKR">PKR — Pakistani Rupee</option>
-                        <option value="BDT">BDT — Bangladeshi Taka</option>
-                        <option value="NPR">NPR — Nepalese Rupee</option>
-                        <option value="LKR">LKR — Sri Lankan Rupee</option>
-                        <option value="MMK">MMK — Myanmar Kyat</option>
-                        <option value="KHR">KHR — Cambodian Riel</option>
-                      </optgroup>
-                      <optgroup label="Middle East">
-                        <option value="AED">AED — UAE Dirham</option>
-                        <option value="SAR">SAR — Saudi Riyal</option>
-                        <option value="QAR">QAR — Qatari Riyal</option>
-                        <option value="KWD">KWD — Kuwaiti Dinar</option>
-                        <option value="BHD">BHD — Bahraini Dinar</option>
-                        <option value="OMR">OMR — Omani Rial</option>
-                        <option value="JOD">JOD — Jordanian Dinar</option>
-                        <option value="ILS">ILS — Israeli Shekel</option>
-                        <option value="IQD">IQD — Iraqi Dinar</option>
-                        <option value="IRR">IRR — Iranian Rial</option>
-                      </optgroup>
-                      <optgroup label="Oceania">
-                        <option value="AUD">AUD — Australian Dollar</option>
-                        <option value="NZD">NZD — New Zealand Dollar</option>
-                        <option value="FJD">FJD — Fijian Dollar</option>
-                        <option value="PGK">PGK — Papua New Guinea Kina</option>
-                      </optgroup>
-                    </select>
+                    <input
+                      type="text"
+                      placeholder="Search e.g. KSh, USD, NGN"
+                      value={newLoan.currencySearch}
+                      onChange={(e) => {
+                        setNewLoan({ ...newLoan, currencySearch: e.target.value.toUpperCase() })
+                        setCurrencyDropdownOpen(true)
+                      }}
+                      onFocus={() => setCurrencyDropdownOpen(true)}
+                      autoComplete="off"
+                    />
+                    {currencyDropdownOpen && (
+                      <div style={{ border: '1px solid #ddd', borderRadius: '8px', maxHeight: '200px', overflowY: 'auto', background: '#fff', zIndex: 10, position: 'relative' }}>
+                        {CURRENCIES
+                          .filter(c =>
+                            c.code.includes(newLoan.currencySearch?.toUpperCase() || '') ||
+                            c.name.toUpperCase().includes(newLoan.currencySearch?.toUpperCase() || '')
+                          )
+                          .map((c, i) => (
+                            <div
+                              key={i}
+                              style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f0f2f5', fontSize: '14px' }}
+                              onMouseDown={() => {
+                                setNewLoan({ ...newLoan, currency: c.code, currencySearch: c.code })
+                                setCurrencyDropdownOpen(false)
+                              }}
+                            >
+                              <strong>{c.code}</strong> — {c.name}
+                            </div>
+                          ))
+                        }
+                      </div>
+                    )}
                   </div>
                   <div className="form-group"><label>Principal Amount *</label><input type="number" placeholder="e.g. 10000" value={newLoan.principal} onChange={(e) => setNewLoan({ ...newLoan, principal: e.target.value })} /></div>
                   <div className="form-group"><label>Interest Rate (%) *</label><input type="number" placeholder="e.g. 10" value={newLoan.interestRate} onChange={(e) => setNewLoan({ ...newLoan, interestRate: e.target.value })} /></div>
@@ -1552,23 +1158,25 @@ useEffect(() => {
               {transactions.length === 0 ? (
                 <p style={{ color: '#888', padding: '16px 0' }}>No transactions recorded yet.</p>
               ) : (
-                <table className="report-table">
-                  <thead><tr><th>TXN Code</th><th>Borrower</th><th>Amount Paid</th><th>Method</th><th>Reference</th><th>Date</th><th>Installments</th><th>Balance After</th></tr></thead>
-                  <tbody>
-                    {transactions.map((txn, i) => (
-                      <tr key={i}>
-                        <td style={{ fontWeight: 600, color: '#1a1a2e' }}>{txn.txnCode}</td>
-                        <td>{txn.borrowerName}</td>
-                        <td style={{ color: '#1D9E75', fontWeight: 600 }}>{txn.currency} {txn.amountPaid.toLocaleString()}</td>
-                        <td>{txn.method}</td>
-                        <td>{txn.referenceCode}</td>
-                        <td>{txn.datePaid}</td>
-                        <td>{txn.installmentsCovered?.join(', ')}</td>
-                        <td style={{ color: '#e74c3c', fontWeight: 600 }}>{txn.currency} {txn.remainingBalance.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="table-wrapper">
+                  <table className="report-table">
+                    <thead><tr><th>TXN Code</th><th>Borrower</th><th>Amount Paid</th><th>Method</th><th>Reference</th><th>Date</th><th>Installments</th><th>Balance After</th></tr></thead>
+                    <tbody>
+                      {transactions.map((txn, i) => (
+                        <tr key={i}>
+                          <td style={{ fontWeight: 600, color: '#1a1a2e' }}>{txn.txnCode}</td>
+                          <td>{txn.borrowerName}</td>
+                          <td style={{ color: '#1D9E75', fontWeight: 600 }}>{txn.currency} {txn.amountPaid.toLocaleString()}</td>
+                          <td>{txn.method}</td>
+                          <td>{txn.referenceCode}</td>
+                          <td>{txn.datePaid}</td>
+                          <td>{txn.installmentsCovered?.join(', ')}</td>
+                          <td style={{ color: '#e74c3c', fontWeight: 600 }}>{txn.currency} {txn.remainingBalance.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
             <div className="profile-card" style={{ marginTop: '16px' }}>
@@ -1576,24 +1184,26 @@ useEffect(() => {
               {loans.length === 0 ? (
                 <p style={{ color: '#888', padding: '16px 0' }}>No loans recorded yet.</p>
               ) : (
-                <table className="report-table">
-                  <thead><tr><th>Borrower</th><th>Principal</th><th>Interest</th><th>Total</th><th>Paid</th><th>Remaining</th><th>Frequency</th><th>Next Due</th><th>Status</th></tr></thead>
-                  <tbody>
-                    {loans.map((loan, i) => (
-                      <tr key={i}>
-                        <td>{loan.borrowerName}</td>
-                        <td>{loan.currency} {loan.principal.toLocaleString()}</td>
-                        <td>{loan.currency} {loan.interestAmount.toLocaleString()}</td>
-                        <td>{loan.currency} {loan.totalExpected.toLocaleString()}</td>
-                        <td style={{ color: '#1D9E75', fontWeight: 600 }}>{loan.currency} {(loan.totalExpected - loan.remainingBalance).toLocaleString()}</td>
-                        <td style={{ color: '#e74c3c', fontWeight: 600 }}>{loan.currency} {loan.remainingBalance.toLocaleString()}</td>
-                        <td>{loan.frequency}</td>
-                        <td>{loan.nextDueDate}</td>
-                        <td><span className={`status-badge status-${loan.status}`}>{loan.status === 'active' && '🟡 Active'}{loan.status === 'cleared' && '✅ Cleared'}{loan.status === 'overdue' && '🔴 Overdue'}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="table-wrapper">
+                  <table className="report-table">
+                    <thead><tr><th>Borrower</th><th>Principal</th><th>Interest</th><th>Total</th><th>Paid</th><th>Remaining</th><th>Frequency</th><th>Next Due</th><th>Status</th></tr></thead>
+                    <tbody>
+                      {loans.map((loan, i) => (
+                        <tr key={i}>
+                          <td>{loan.borrowerName}</td>
+                          <td>{loan.currency} {loan.principal.toLocaleString()}</td>
+                          <td>{loan.currency} {loan.interestAmount.toLocaleString()}</td>
+                          <td>{loan.currency} {loan.totalExpected.toLocaleString()}</td>
+                          <td style={{ color: '#1D9E75', fontWeight: 600 }}>{loan.currency} {(loan.totalExpected - loan.remainingBalance).toLocaleString()}</td>
+                          <td style={{ color: '#e74c3c', fontWeight: 600 }}>{loan.currency} {loan.remainingBalance.toLocaleString()}</td>
+                          <td>{loan.frequency}</td>
+                          <td>{loan.nextDueDate}</td>
+                          <td><span className={`status-badge status-${loan.status}`}>{loan.status === 'active' && '🟡 Active'}{loan.status === 'cleared' && '✅ Cleared'}{loan.status === 'overdue' && '🔴 Overdue'}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
             <div className="profile-card" style={{ marginTop: '16px' }}>
@@ -1601,25 +1211,27 @@ useEffect(() => {
               {borrowers.length === 0 ? (
                 <p style={{ color: '#888', padding: '16px 0' }}>No borrowers recorded yet.</p>
               ) : (
-                <table className="report-table">
-                  <thead><tr><th>Borrower</th><th>Phone</th><th>Total Loans</th><th>Total Borrowed</th><th>Total Paid</th><th>Owing</th><th>Status</th></tr></thead>
-                  <tbody>
-                    {borrowers.map((borrower, i) => {
-                      const stats = getBorrowerStats(borrower.name)
-                      return (
-                        <tr key={i}>
-                          <td>{borrower.name}</td>
-                          <td>{borrower.phone}</td>
-                          <td>{stats.totalLoans}</td>
-                          <td>{stats.totalBorrowed.toLocaleString()}</td>
-                          <td style={{ color: '#1D9E75', fontWeight: 600 }}>{stats.totalPaid.toLocaleString()}</td>
-                          <td style={{ color: '#e74c3c', fontWeight: 600 }}>{stats.totalOwing.toLocaleString()}</td>
-                          <td>{stats.activeLoans > 0 ? <span className="status-badge status-active">🟡 Active</span> : <span className="status-badge status-cleared">✅ Clear</span>}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+                <div className="table-wrapper">
+                  <table className="report-table">
+                    <thead><tr><th>Borrower</th><th>Phone</th><th>Total Loans</th><th>Total Borrowed</th><th>Total Paid</th><th>Owing</th><th>Status</th></tr></thead>
+                    <tbody>
+                      {borrowers.map((borrower, i) => {
+                        const stats = getBorrowerStats(borrower.name)
+                        return (
+                          <tr key={i}>
+                            <td>{borrower.name}</td>
+                            <td>{borrower.phone}</td>
+                            <td>{stats.totalLoans}</td>
+                            <td>{stats.totalBorrowed.toLocaleString()}</td>
+                            <td style={{ color: '#1D9E75', fontWeight: 600 }}>{stats.totalPaid.toLocaleString()}</td>
+                            <td style={{ color: '#e74c3c', fontWeight: 600 }}>{stats.totalOwing.toLocaleString()}</td>
+                            <td>{stats.activeLoans > 0 ? <span className="status-badge status-active">🟡 Active</span> : <span className="status-badge status-cleared">✅ Clear</span>}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           </div>
