@@ -3,12 +3,12 @@ import { getFirestore } from 'firebase/firestore'
 import { getAuth, GoogleAuthProvider } from 'firebase/auth'
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDl72XRGYDp7hZdy4KfTIw1J1Olh7xnyPI",
-  authDomain: "loan-manager-616db.firebaseapp.com",
-  projectId: "loan-manager-616db",
-  storageBucket: "loan-manager-616db.firebasestorage.app",
-  messagingSenderId: "154084055403",
-  appId: "1:154084055403:web:a630c0bd190d4ef60ed42e"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 }
 
 const app = initializeApp(firebaseConfig)
