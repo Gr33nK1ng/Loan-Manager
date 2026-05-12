@@ -20,10 +20,12 @@ import {
   signOut,
   onAuthStateChanged,
   RecaptchaVerifier,
-  signInWithPhoneNumber
+  signInWithPhoneNumber,
+  sendEmailVerification
 } from 'firebase/auth'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
+import { sendEmailVerification } from 'firebase/auth'
 
 // ─── Plan Configuration ───────────────────────────────────────────────────────
 
@@ -734,20 +736,69 @@ useEffect(() => {
     } catch (error) { setAuthError('Invalid email or password. Please try again.') }
   }
 
+  const loginWithEmail = async () => {
+  setAuthError('')
+  if (!loginData.email || !loginData.password) {
+    setAuthError('Please fill in all fields')
+    return
+  }
+  try {
+    const userCredential = await signInWithEmailAndPassword(
+      auth, loginData.email, loginData.password
+    )
+    if (!userCredential.user.emailVerified) {
+      await signOut(auth)
+      setAuthError('Please verify your email first. Check your inbox for a verification link.')
+      return
+    }
+  } catch (error) {
+    setAuthError('Invalid email or password. Please try again.')
+  }
+}
+
   const signupWithEmail = async () => {
+  setAuthError('')
+  if (!signupData.email || !signupData.password || !signupData.confirmPassword) {
+    setAuthError('Please fill in all fields')
+    return
+  }
+  if (signupData.password !== signupData.confirmPassword) {
+    setAuthError('Passwords do not match')
+    return
+  }
+  if (signupData.password.length < 12) {
+    setAuthError('Password must be at least 12 characters')
+    return
+  }
+  if (!/[A-Z]/.test(signupData.password)) {
+    setAuthError('Password must contain at least one uppercase letter')
+    return
+  }
+  if (!/[0-9]/.test(signupData.password)) {
+    setAuthError('Password must contain at least one number')
+    return
+  }
+  if (!/[!@#$%^&*]/.test(signupData.password)) {
+    setAuthError('Password must contain at least one special character e.g. !@#$%')
+    return
+  }
+  try {
+    const userCredential = await createUserWithEmailAndPassword(
+      auth, signupData.email, signupData.password
+    )
+    await sendEmailVerification(userCredential.user)
+    await signOut(auth)
+    setAuthPage('login')
     setAuthError('')
-    if (!signupData.email || !signupData.password || !signupData.confirmPassword) { setAuthError('Please fill in all fields'); return }
-    if (signupData.password !== signupData.confirmPassword) { setAuthError('Passwords do not match'); return }
-    if (signupData.password.length < 8) { setAuthError('Password must be at least 8 characters'); return }
-    if (signupData.password.length > 10) { setAuthError('Password must not exceed 10 characters'); return }
-    try {
-      await createUserWithEmailAndPassword(auth, signupData.email, signupData.password)
-    } catch (error) {
-      if (error.code === 'auth/email-already-in-use') { setAuthError('Email already in use. Please login instead.') }
-      else { setAuthError('Error creating account. Please try again.') }
+    alert('✅ Account created! Please check your email and click the verification link before logging in.')
+  } catch (error) {
+    if (error.code === 'auth/email-already-in-use') {
+      setAuthError('Email already in use. Please login instead.')
+    } else {
+      setAuthError('Error creating account. Please try again.')
     }
   }
-
+}
   const loginWithGoogle = async () => {
     setAuthError('')
     try { await signInWithPopup(auth, googleProvider) }
@@ -891,7 +942,7 @@ useEffect(() => {
           {authPage === 'signup' && (
             <div>
               <div className="form-group"><label>Email Address</label><input type="email" placeholder="your@email.com" value={signupData.email} onChange={(e) => setSignupData({ ...signupData, email: e.target.value })} /></div>
-              <div className="form-group"><label>Password (8-10 characters)</label><input type="password" placeholder="8 to 10 characters" value={signupData.password} onChange={(e) => setSignupData({ ...signupData, password: e.target.value })} /></div>
+              <div className="form-group"><label>Password (min 12 characters)</label><input type="password" placeholder="Uppercase, number and special character required" value={signupData.password} onChange={(e) => setSignupData({ ...signupData, password: e.target.value })} /></div>
               <div className="form-group"><label>Confirm Password</label><input type="password" placeholder="Repeat your password" value={signupData.confirmPassword} onChange={(e) => setSignupData({ ...signupData, confirmPassword: e.target.value })} /></div>
               <button className="btn-primary auth-btn" onClick={signupWithEmail}>Create Account</button>
               <div className="auth-divider">or</div>
