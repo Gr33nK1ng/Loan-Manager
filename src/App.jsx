@@ -19,10 +19,12 @@ import {
   onAuthStateChanged,
   RecaptchaVerifier,
   signInWithPhoneNumber,
-  sendEmailVerification
+  sendEmailVerification,
+  sendPasswordResetEmail
 } from 'firebase/auth'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
+import emailjs from '@emailjs/browser'
 
 const CURRENCIES = [
   { code: 'KSh', name: 'Kenyan Shilling' },
@@ -457,43 +459,60 @@ function App() {
     }
   }
 
-  const signupWithEmail = async () => {
-    setAuthError('')
-    if (!signupData.email || !signupData.password || !signupData.confirmPassword) {
-      setAuthError('Please fill in all fields'); return
-    }
-    if (signupData.password !== signupData.confirmPassword) {
-      setAuthError('Passwords do not match'); return
-    }
-    if (signupData.password.length < 8) {
-      setAuthError('Password must be at least 8 characters'); return
-    }
-    if (signupData.password.length > 12) {
-      setAuthError('Password must not exceed 12 characters'); return
-    }
-    if (!/[A-Z]/.test(signupData.password)) {
-      setAuthError('Password must contain at least one uppercase letter'); return
-    }
-    if (!/[0-9]/.test(signupData.password)) {
-      setAuthError('Password must contain at least one number'); return
-    }
-    if (!/[!@#$%^&*]/.test(signupData.password)) {
-      setAuthError('Password must contain at least one special character e.g. !@#$%'); return
-    }
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, signupData.email, signupData.password)
-      await sendEmailVerification(userCredential.user)
-      await signOut(auth)
-      setAuthPage('login')
-      alert('✅ Account created! Please check your email and click the verification link before logging in.')
-    } catch (error) {
-      if (error.code === 'auth/email-already-in-use') {
-        setAuthError('Email already in use. Please login instead.')
-      } else {
-        setAuthError('Error creating account. Please try again.')
-      }
+const signupWithEmail = async () => {
+  setAuthError('')
+  if (!signupData.email || !signupData.password || !signupData.confirmPassword) {
+    setAuthError('Please fill in all fields'); return
+  }
+  if (signupData.password !== signupData.confirmPassword) {
+    setAuthError('Passwords do not match'); return
+  }
+  if (signupData.password.length < 8) {
+    setAuthError('Password must be at least 8 characters'); return
+  }
+  if (signupData.password.length > 12) {
+    setAuthError('Password must not exceed 12 characters'); return
+  }
+  if (!/[A-Z]/.test(signupData.password)) {
+    setAuthError('Password must contain at least one uppercase letter'); return
+  }
+  if (!/[0-9]/.test(signupData.password)) {
+    setAuthError('Password must contain at least one number'); return
+  }
+  if (!/[!@#$%^&*]/.test(signupData.password)) {
+    setAuthError('Password must contain at least one special character e.g. !@#$%'); return
+  }
+  try {
+    const userCredential = await createUserWithEmailAndPassword(
+      auth, signupData.email, signupData.password
+    )
+    await sendEmailVerification(userCredential.user)
+
+    await emailjs.send(
+      import.meta.env.VITE_EMAILJS_SERVICE_ID,
+      import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
+      {
+        to_email: signupData.email,
+        to_name: signupData.email.split('@')[0],
+        subject: 'Verify your Loan Manager account',
+        message: 'Thank you for signing up on Loan Manager. Please verify your email address by clicking the button below.',
+        action_url: 'https://softloansmanager.netlify.app',
+        action_text: 'Verify Email'
+      },
+      import.meta.env.VITE_EMAILJS_PUBLIC_KEY
+    )
+
+    await signOut(auth)
+    setAuthPage('login')
+    alert('✅ Account created! A verification email has been sent to your inbox. Please verify before logging in.')
+  } catch (error) {
+    if (error.code === 'auth/email-already-in-use') {
+      setAuthError('Email already in use. Please login instead.')
+    } else {
+      setAuthError('Error creating account. Please try again.')
     }
   }
+}
 
   const loginWithGoogle = async () => {
     setAuthError('')
@@ -524,7 +543,37 @@ function App() {
     try { await confirmationResult.confirm(phoneData.otp) }
     catch (error) { setAuthError('Invalid OTP code. Please try again.') }
   }
+const resetPassword = async () => {
+  if (!loginData.email) {
+    setAuthError('Please enter your email address first')
+    return
+  }
+  try {
+    await sendPasswordResetEmail(auth, loginData.email)
 
+    await emailjs.send(
+      import.meta.env.VITE_EMAILJS_SERVICE_ID,
+      import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
+      {
+        to_email: loginData.email,
+        to_name: loginData.email.split('@')[0],
+        subject: 'Reset your Loan Manager password',
+        message: 'We received a request to reset your Loan Manager password. Click the button below to reset it. If you did not request this ignore this email.',
+        action_url: `https://accounts.google.com/signin`,
+        action_text: 'Reset Password'
+      },
+      import.meta.env.VITE_EMAILJS_PUBLIC_KEY
+    )
+
+    alert(`✅ Password reset link sent to ${loginData.email}. Check your inbox!`)
+  } catch (error) {
+    if (error.code === 'auth/user-not-found') {
+      setAuthError('No account found with that email address.')
+    } else {
+      setAuthError('Error sending reset email. Please try again.')
+    }
+  }
+}
   const logout = async () => {
     await signOut(auth)
     setPage('dashboard')
@@ -632,20 +681,26 @@ function App() {
           {authError && <div className="auth-error">{authError}</div>}
 
           {authPage === 'login' && (
-            <div>
-              <div className="form-group">
-                <label>Email Address</label>
-                <input type="email" placeholder="your@email.com" value={loginData.email} onChange={(e) => setLoginData({ ...loginData, email: e.target.value })} />
-              </div>
-              <div className="form-group">
-                <label>Password</label>
-                <input type="password" placeholder="Your password" value={loginData.password} onChange={(e) => setLoginData({ ...loginData, password: e.target.value })} />
-              </div>
-              <button className="btn-primary auth-btn" onClick={loginWithEmail}>Login</button>
-              <div className="auth-divider">or</div>
-              <button className="btn-google" onClick={loginWithGoogle}>🔵 Continue with Google</button>
-            </div>
-          )}
+  <div>
+    <div className="form-group">
+      <label>Email Address</label>
+      <input type="email" placeholder="your@email.com" value={loginData.email} onChange={(e) => setLoginData({ ...loginData, email: e.target.value })} />
+    </div>
+    <div className="form-group">
+      <label>Password</label>
+      <input type="password" placeholder="Your password" value={loginData.password} onChange={(e) => setLoginData({ ...loginData, password: e.target.value })} />
+    </div>
+    <button className="btn-primary auth-btn" onClick={loginWithEmail}>Login</button>
+    <p
+      style={{ textAlign: 'center', fontSize: '13px', color: '#1D9E75', cursor: 'pointer', marginTop: '12px' }}
+      onClick={resetPassword}
+    >
+      Forgot password? Click here to reset
+    </p>
+    <div className="auth-divider">or</div>
+    <button className="btn-google" onClick={loginWithGoogle}>🔵 Continue with Google</button>
+  </div>
+)}
 
           {authPage === 'signup' && (
             <div>
