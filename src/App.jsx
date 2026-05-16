@@ -1,26 +1,15 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import './App.css'
 import { db, auth, googleProvider } from './firebase'
 import {
-  collection,
-  addDoc,
-  deleteDoc,
-  doc,
-  onSnapshot,
-  query,
-  where,
-  updateDoc
+  collection, addDoc, deleteDoc, doc,
+  onSnapshot, query, where, updateDoc
 } from 'firebase/firestore'
 import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  signOut,
-  onAuthStateChanged,
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
-  sendEmailVerification,
-  sendPasswordResetEmail
+  createUserWithEmailAndPassword, signInWithEmailAndPassword,
+  signInWithPopup, signOut, onAuthStateChanged,
+  RecaptchaVerifier, signInWithPhoneNumber,
+  sendEmailVerification, sendPasswordResetEmail
 } from 'firebase/auth'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
@@ -116,10 +105,75 @@ const CURRENCIES = [
   { code: 'PGK', name: 'Papua New Guinea Kina' }
 ]
 
+// ─── Push Notification Helper ──────────────────────────────────────────────────
+const requestNotificationPermission = async () => {
+  if (!('Notification' in window)) return false
+  if (Notification.permission === 'granted') return true
+  if (Notification.permission === 'denied') return false
+  const permission = await Notification.requestPermission()
+  return permission === 'granted'
+}
+
+const sendPushNotification = (title, body, icon = '/icons.svg') => {
+  if (!('Notification' in window)) return
+  if (Notification.permission !== 'granted') return
+  try {
+    new Notification(title, { body, icon, badge: '/icons.svg', tag: title })
+  } catch (e) {
+    console.warn('Push notification failed:', e)
+  }
+}
+
+const checkAndSendNotifications = (loans) => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const notifiedKey = `notified_${today.toDateString()}`
+  const alreadyNotified = JSON.parse(localStorage.getItem(notifiedKey) || '[]')
+  const newlyNotified = [...alreadyNotified]
+
+  loans.filter(l => l.status === 'active').forEach(loan => {
+    if (!loan.nextDueDate || loan.nextDueDate === 'Cleared') return
+    const due = new Date(loan.nextDueDate)
+    due.setHours(0, 0, 0, 0)
+    const diffDays = Math.round((due - today) / (1000 * 60 * 60 * 24))
+    const notifId = `${loan.id}_${loan.nextDueDate}`
+
+    if (alreadyNotified.includes(notifId)) return
+
+    if (diffDays < 0) {
+      sendPushNotification(
+        '🔴 Payment Overdue!',
+        `${loan.borrowerName} is overdue by ${Math.abs(diffDays)} day(s). Expected: ${loan.currency} ${loan.installmentAmount?.toLocaleString()}`
+      )
+      newlyNotified.push(notifId)
+    } else if (diffDays === 0) {
+      sendPushNotification(
+        '⚠️ Payment Due Today!',
+        `${loan.borrowerName} has a payment due today. Amount: ${loan.currency} ${loan.installmentAmount?.toLocaleString()}`
+      )
+      newlyNotified.push(notifId)
+    } else if (diffDays === 1) {
+      sendPushNotification(
+        '🔔 Payment Due Tomorrow',
+        `${loan.borrowerName} has a payment due tomorrow. Amount: ${loan.currency} ${loan.installmentAmount?.toLocaleString()}`
+      )
+      newlyNotified.push(notifId)
+    } else if (diffDays === 3) {
+      sendPushNotification(
+        '📅 Payment Due in 3 Days',
+        `${loan.borrowerName} has a payment due on ${loan.nextDueDate}. Amount: ${loan.currency} ${loan.installmentAmount?.toLocaleString()}`
+      )
+      newlyNotified.push(notifId)
+    }
+  })
+
+  localStorage.setItem(notifiedKey, JSON.stringify(newlyNotified))
+}
+
+// ─── QR Code ───────────────────────────────────────────────────────────────────
 function QRCode({ url }) {
   const size = 120
-  const appUrl = url || 'https://softloansmanager.netlify.app'
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(appUrl)}&bgcolor=ffffff&color=1a1a2e&margin=4`
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(url || 'https://softloansmanager.netlify.app')}&bgcolor=ffffff&color=1a1a2e&margin=4`
   return (
     <div style={{ textAlign: 'center', marginTop: '20px' }}>
       <p style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>Scan to open on your phone</p>
@@ -129,6 +183,7 @@ function QRCode({ url }) {
   )
 }
 
+// ─── Currency Converter ────────────────────────────────────────────────────────
 function CurrencyConverter() {
   const [amount, setAmount] = useState('')
   const [fromCurrency, setFromCurrency] = useState('USD')
@@ -230,6 +285,7 @@ function CurrencyConverter() {
   )
 }
 
+// ─── Payment Receipt ───────────────────────────────────────────────────────────
 function PaymentReceipt({ txn, loan, onClose }) {
   const initials = txn.borrowerName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
   const formattedDate = new Date(txn.datePaid).toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -257,7 +313,7 @@ function PaymentReceipt({ txn, loan, onClose }) {
   const handleWhatsApp = async () => {
     const pdf = await generatePDF(); pdf.save(`Receipt-${txn.txnCode}.pdf`)
     setTimeout(() => {
-      const text = encodeURIComponent(`💰 *LOAN MANAGER – PAYMENT RECEIPT*\n\nTXN Code: *${txn.txnCode}*\nDate: ${formattedDate}\nBorrower: ${txn.borrowerName}\nTotal Paid: *${txn.currency} ${txn.amountPaid.toLocaleString()}*\nRemaining Balance: ${txn.currency} ${txn.remainingBalance.toLocaleString()}\nMethod: ${txn.method} | Ref: ${txn.referenceCode}\n\n_PDF receipt downloaded. Please attach to this message._\n\n_Thank you for your payment_ 🙏`)
+      const text = encodeURIComponent(`💰 *LOAN MANAGER – PAYMENT RECEIPT*\n\nTXN Code: *${txn.txnCode}*\nDate: ${formattedDate}\nBorrower: ${txn.borrowerName}\nTotal Paid: *${txn.currency} ${txn.amountPaid.toLocaleString()}*\nRemaining Balance: ${txn.currency} ${txn.remainingBalance.toLocaleString()}\nMethod: ${txn.method} | Ref: ${txn.referenceCode}\n\n_PDF receipt downloaded. Please attach._\n\n_Thank you_ 🙏`)
       window.open(`https://wa.me/?text=${text}`, '_blank')
     }, 800)
   }
@@ -325,6 +381,7 @@ function PaymentReceipt({ txn, loan, onClose }) {
   )
 }
 
+// ─── Main App ──────────────────────────────────────────────────────────────────
 function App() {
   const [user, setUser] = useState(null)
   const [authPage, setAuthPage] = useState('login')
@@ -336,6 +393,7 @@ function App() {
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showReceipt, setShowReceipt] = useState(false)
   const [showEditLoan, setShowEditLoan] = useState(false)
+  const [showInstallments, setShowInstallments] = useState(false)
   const [lastTxn, setLastTxn] = useState(null)
   const [selectedLoan, setSelectedLoan] = useState(null)
   const [borrowers, setBorrowers] = useState([])
@@ -347,8 +405,8 @@ function App() {
   const [confirmationResult, setConfirmationResult] = useState(null)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [currencyDropdownOpen, setCurrencyDropdownOpen] = useState(false)
-  const [showInstallments, setShowInstallments] = useState(false)
-  const [editLoanData, setEditLoanData] = useState({ principal: '', interestRate: '', interestMode: 'rate', interestAmount: '', durationDays: '' })
+  const [notificationPermission, setNotificationPermission] = useState(Notification?.permission || 'default')
+  const [editLoanData, setEditLoanData] = useState({ principal: '', interestMode: 'rate', interestRate: '', interestAmount: '', durationDays: '' })
 
   const [loginData, setLoginData] = useState({ email: '', password: '' })
   const [signupData, setSignupData] = useState({ email: '', password: '', confirmPassword: '' })
@@ -369,6 +427,23 @@ function App() {
     if (typeof str !== 'string') return str
     return str.replace(/[<>{}]/g, '').trim()
   }
+
+  // ── Request notification permission on login ─────────────────────────────────
+  useEffect(() => {
+    if (user && 'Notification' in window && Notification.permission === 'default') {
+      setTimeout(async () => {
+        const granted = await requestNotificationPermission()
+        setNotificationPermission(granted ? 'granted' : 'denied')
+      }, 3000)
+    }
+  }, [user])
+
+  // ── Fire push notifications when loans load ──────────────────────────────────
+  useEffect(() => {
+    if (loans.length > 0 && notificationPermission === 'granted') {
+      checkAndSendNotifications(loans)
+    }
+  }, [loans, notificationPermission])
 
   useEffect(() => {
     let timeout
@@ -437,58 +512,31 @@ function App() {
     return installments
   }
 
-  // ── Monthly interest calculation ─────────────────────────────────────────────
   const getMonthlyInterest = () => {
     const now = new Date()
     const thisMonth = now.getMonth()
     const thisYear = now.getFullYear()
     const lastMonth = thisMonth === 0 ? 11 : thisMonth - 1
     const lastYear = thisMonth === 0 ? thisYear - 1 : thisYear
-
-    const thisMonthTxns = transactions.filter(t => {
-      const d = new Date(t.datePaid)
-      return d.getMonth() === thisMonth && d.getFullYear() === thisYear
-    })
-    const lastMonthTxns = transactions.filter(t => {
-      const d = new Date(t.datePaid)
-      return d.getMonth() === lastMonth && d.getFullYear() === lastYear
-    })
-
-    const thisMonthInterest = loans.filter(l => {
-      const d = new Date(l.createdAt || l.startDate)
-      return d.getMonth() === thisMonth && d.getFullYear() === thisYear
-    }).reduce((s, l) => s + l.interestAmount, 0)
-
-    const lastMonthInterest = loans.filter(l => {
-      const d = new Date(l.createdAt || l.startDate)
-      return d.getMonth() === lastMonth && d.getFullYear() === lastYear
-    }).reduce((s, l) => s + l.interestAmount, 0)
-
+    const thisMonthInterest = loans.filter(l => { const d = new Date(l.createdAt || l.startDate); return d.getMonth() === thisMonth && d.getFullYear() === thisYear }).reduce((s, l) => s + l.interestAmount, 0)
+    const lastMonthInterest = loans.filter(l => { const d = new Date(l.createdAt || l.startDate); return d.getMonth() === lastMonth && d.getFullYear() === lastYear }).reduce((s, l) => s + l.interestAmount, 0)
     const trend = thisMonthInterest > lastMonthInterest ? 'up' : thisMonthInterest < lastMonthInterest ? 'down' : 'same'
     return { thisMonth: thisMonthInterest, lastMonth: lastMonthInterest, trend }
   }
 
-  // ── Dashboard notifications ───────────────────────────────────────────────────
   const getDashboardNotifications = () => {
     const notifications = []
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    const in3Days = new Date(today)
-    in3Days.setDate(in3Days.getDate() + 3)
-
     loans.filter(l => l.status === 'active').forEach(loan => {
-      if (loan.nextDueDate && loan.nextDueDate !== 'Cleared') {
-        const due = new Date(loan.nextDueDate)
-        due.setHours(0, 0, 0, 0)
-        const diffDays = Math.round((due - today) / (1000 * 60 * 60 * 24))
-        if (diffDays < 0) {
-          notifications.push({ type: 'overdue', message: `${loan.borrowerName} — payment overdue by ${Math.abs(diffDays)} day(s)`, loan, color: '#e74c3c', icon: '🔴' })
-        } else if (diffDays === 0) {
-          notifications.push({ type: 'due_today', message: `${loan.borrowerName} — payment due TODAY (${loan.currency} ${loan.installmentAmount?.toLocaleString()})`, loan, color: '#E8593C', icon: '⚠️' })
-        } else if (diffDays <= 3) {
-          notifications.push({ type: 'upcoming', message: `${loan.borrowerName} — payment due in ${diffDays} day(s) on ${loan.nextDueDate}`, loan, color: '#856404', icon: '🟡' })
-        }
-      }
+      if (!loan.nextDueDate || loan.nextDueDate === 'Cleared') return
+      const due = new Date(loan.nextDueDate)
+      due.setHours(0, 0, 0, 0)
+      const diffDays = Math.round((due - today) / (1000 * 60 * 60 * 24))
+      if (diffDays < 0) notifications.push({ type: 'overdue', message: `${loan.borrowerName} — payment overdue by ${Math.abs(diffDays)} day(s) (${loan.currency} ${loan.installmentAmount?.toLocaleString()})`, loan, color: '#e74c3c', icon: '🔴' })
+      else if (diffDays === 0) notifications.push({ type: 'due_today', message: `${loan.borrowerName} — payment due TODAY (${loan.currency} ${loan.installmentAmount?.toLocaleString()})`, loan, color: '#E8593C', icon: '⚠️' })
+      else if (diffDays === 1) notifications.push({ type: 'tomorrow', message: `${loan.borrowerName} — payment due TOMORROW (${loan.currency} ${loan.installmentAmount?.toLocaleString()})`, loan, color: '#856404', icon: '🟠' })
+      else if (diffDays <= 3) notifications.push({ type: 'upcoming', message: `${loan.borrowerName} — payment due in ${diffDays} days on ${loan.nextDueDate}`, loan, color: '#856404', icon: '🟡' })
     })
     return notifications
   }
@@ -509,12 +557,10 @@ function App() {
       const amountStillDue = inst.amountDue - (inst.amountPaid || 0)
       if (remainingPayment >= amountStillDue) {
         updatedInstallments[i] = { ...inst, amountPaid: inst.amountDue, status: 'paid', txnCode, datePaid: paymentData.datePaid }
-        remainingPayment -= amountStillDue
-        newRemainingBalance -= amountStillDue
+        remainingPayment -= amountStillDue; newRemainingBalance -= amountStillDue
       } else {
         updatedInstallments[i] = { ...inst, amountPaid: (inst.amountPaid || 0) + remainingPayment, status: 'partial', txnCode, datePaid: paymentData.datePaid }
-        newRemainingBalance -= remainingPayment
-        remainingPayment = 0
+        newRemainingBalance -= remainingPayment; remainingPayment = 0
       }
     }
     const newStatus = newRemainingBalance <= 0 ? 'cleared' : 'active'
@@ -522,17 +568,11 @@ function App() {
     const nextDueDate = nextUnpaid ? nextUnpaid.dueDate : 'Cleared'
     try {
       await updateDoc(doc(db, 'loans', selectedLoan.id), { remainingBalance: newRemainingBalance, installments: updatedInstallments, status: newStatus, nextDueDate })
-      const txnRecord = {
-        userId: user.uid, loanId: selectedLoan.id, borrowerId: selectedLoan.borrowerId || '',
-        borrowerName: selectedLoan.borrowerName, txnCode, amountPaid, method: paymentData.method,
-        referenceCode: paymentData.referenceCode, datePaid: paymentData.datePaid, notes: paymentData.notes,
-        remainingBalance: newRemainingBalance, currency: selectedLoan.currency, createdAt: new Date().toISOString()
-      }
+      const txnRecord = { userId: user.uid, loanId: selectedLoan.id, borrowerId: selectedLoan.borrowerId || '', borrowerName: selectedLoan.borrowerName, txnCode, amountPaid, method: paymentData.method, referenceCode: paymentData.referenceCode, datePaid: paymentData.datePaid, notes: paymentData.notes, remainingBalance: newRemainingBalance, currency: selectedLoan.currency, createdAt: new Date().toISOString() }
       await addDoc(collection(db, 'transactions'), txnRecord)
       const borrower = borrowers.find(b => b.name === selectedLoan.borrowerName)
       setLastTxn({ ...txnRecord, loan: { ...selectedLoan, phone: borrower?.phone || '' } })
-      setShowPaymentModal(false)
-      setShowReceipt(true)
+      setShowPaymentModal(false); setShowReceipt(true)
       setPaymentData({ amountPaid: '', method: 'M-Pesa', referenceCode: '', datePaid: new Date().toISOString().split('T')[0], notes: '' })
       const updatedLoan = loans.find(l => l.id === selectedLoan.id)
       if (updatedLoan) setSelectedLoan({ ...updatedLoan, remainingBalance: newRemainingBalance, installments: updatedInstallments, status: newStatus })
@@ -542,9 +582,7 @@ function App() {
   const saveLoanEdit = async () => {
     if (!editLoanData.principal) { alert('Please enter a principal amount'); return }
     const principal = Number(editLoanData.principal)
-    let interestAmt = editLoanData.interestMode === 'rate'
-      ? principal * (Number(editLoanData.interestRate) || 0) / 100
-      : Number(editLoanData.interestAmount) || 0
+    let interestAmt = editLoanData.interestMode === 'rate' ? principal * (Number(editLoanData.interestRate) || 0) / 100 : Number(editLoanData.interestAmount) || 0
     const totalExpected = principal + interestAmt
     const durationDays = Number(editLoanData.durationDays) || selectedLoan.durationDays
     let installmentCount = selectedLoan.frequency === 'Daily' ? durationDays : selectedLoan.frequency === 'Weekly' ? Math.ceil(durationDays / 7) : Math.ceil(durationDays / 30)
@@ -554,15 +592,8 @@ function App() {
     const newRemaining = Math.max(0, totalExpected - amountAlreadyPaid)
     const interestRate = editLoanData.interestMode === 'rate' ? Number(editLoanData.interestRate) : parseFloat(((interestAmt / principal) * 100).toFixed(2))
     try {
-      await updateDoc(doc(db, 'loans', selectedLoan.id), {
-        principal, interestAmount: interestAmt, interestRate,
-        totalExpected, installmentAmount, durationDays,
-        remainingBalance: newRemaining,
-        editedAt: new Date().toISOString(),
-        editNote: `Edited — principal changed to ${selectedLoan.currency} ${principal.toLocaleString()}`
-      })
-      setShowEditLoan(false)
-      setShowLoanDetail(false)
+      await updateDoc(doc(db, 'loans', selectedLoan.id), { principal, interestAmount: interestAmt, interestRate, totalExpected, installmentAmount, durationDays, remainingBalance: newRemaining, editedAt: new Date().toISOString() })
+      setShowEditLoan(false); setShowLoanDetail(false)
       alert('✅ Loan updated successfully!')
     } catch (error) { alert('Error updating loan. Please try again.'); console.error(error) }
   }
@@ -588,13 +619,8 @@ function App() {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, signupData.email, signupData.password)
       await sendEmailVerification(userCredential.user)
-      try {
-        await emailjs.send(import.meta.env.VITE_EMAILJS_SERVICE_ID, import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
-          { to_email: signupData.email, to_name: signupData.email.split('@')[0], subject: 'Verify your Loan Manager account', message: 'Thank you for signing up on Loan Manager. Please verify your email address by clicking the button below.', action_url: 'https://softloansmanager.netlify.app', action_text: 'Verify Email' },
-          import.meta.env.VITE_EMAILJS_PUBLIC_KEY)
-      } catch (emailErr) { console.warn('EmailJS failed:', emailErr) }
-      await signOut(auth)
-      setAuthPage('login')
+      try { await emailjs.send(import.meta.env.VITE_EMAILJS_SERVICE_ID, import.meta.env.VITE_EMAILJS_TEMPLATE_ID, { to_email: signupData.email, to_name: signupData.email.split('@')[0], subject: 'Verify your Loan Manager account', message: 'Thank you for signing up on Loan Manager. Please verify your email address by clicking the button below.', action_url: 'https://softloansmanager.netlify.app', action_text: 'Verify Email' }, import.meta.env.VITE_EMAILJS_PUBLIC_KEY) } catch (emailErr) { console.warn('EmailJS failed:', emailErr) }
+      await signOut(auth); setAuthPage('login')
       alert('✅ Account created! A verification email has been sent. Please verify before logging in.')
     } catch (error) {
       if (error.code === 'auth/email-already-in-use') { setAuthError('Email already in use. Please login instead.') }
@@ -632,11 +658,7 @@ function App() {
     if (!loginData.email) { setAuthError('Please enter your email address first'); return }
     try {
       await sendPasswordResetEmail(auth, loginData.email)
-      try {
-        await emailjs.send(import.meta.env.VITE_EMAILJS_SERVICE_ID, import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
-          { to_email: loginData.email, to_name: loginData.email.split('@')[0], subject: 'Reset your Loan Manager password', message: 'We received a request to reset your Loan Manager password. Click the button below to reset it.', action_url: 'https://accounts.google.com/signin', action_text: 'Reset Password' },
-          import.meta.env.VITE_EMAILJS_PUBLIC_KEY)
-      } catch (emailErr) { console.warn('EmailJS failed:', emailErr) }
+      try { await emailjs.send(import.meta.env.VITE_EMAILJS_SERVICE_ID, import.meta.env.VITE_EMAILJS_TEMPLATE_ID, { to_email: loginData.email, to_name: loginData.email.split('@')[0], subject: 'Reset your Loan Manager password', message: 'We received a request to reset your Loan Manager password. Click the button below to reset it.', action_url: 'https://accounts.google.com/signin', action_text: 'Reset Password' }, import.meta.env.VITE_EMAILJS_PUBLIC_KEY) } catch (emailErr) { console.warn('EmailJS failed:', emailErr) }
       alert(`✅ Password reset link sent to ${loginData.email}. Check your inbox!`)
     } catch (error) {
       if (error.code === 'auth/user-not-found') { setAuthError('No account found with that email address.') }
@@ -651,8 +673,7 @@ function App() {
     if (!newBorrower.consent) { alert('Please confirm the borrower has consented to their data being stored'); return }
     try {
       await addDoc(collection(db, 'borrowers'), { name: sanitize(newBorrower.name), phone: sanitize(newBorrower.phone), idNumber: sanitize(newBorrower.idNumber), email: sanitize(newBorrower.email), notes: sanitize(newBorrower.notes), userId: user.uid, createdAt: new Date().toISOString() })
-      setNewBorrower({ name: '', phone: '', idNumber: '', email: '', notes: '', consent: false })
-      setShowModal(false)
+      setNewBorrower({ name: '', phone: '', idNumber: '', email: '', notes: '', consent: false }); setShowModal(false)
     } catch (error) { alert('Error saving borrower. Please try again.'); console.error(error) }
   }
 
@@ -691,15 +712,7 @@ function App() {
     let endDateStr = newLoan.endDate
     if (newLoan.durationMode === 'days') { const end = new Date(start); end.setDate(end.getDate() + durationDays); endDateStr = end.toDateString() }
     const interestRateDisplay = newLoan.interestMode === 'rate' ? Number(newLoan.interestRate) : parseFloat(((interestAmt / principal) * 100).toFixed(2))
-    const loan = {
-      borrowerName: sanitize(newLoan.borrowerName), borrowerId: borrower?.id || '',
-      currency: newLoan.currency, principal, interestMode: newLoan.interestMode,
-      interestRate: interestRateDisplay, interestAmount: interestAmt, totalExpected,
-      installmentAmount, installmentCount, durationDays, endDate: endDateStr,
-      frequency: newLoan.frequency, startDate: newLoan.startDate, notes: sanitize(newLoan.notes),
-      status: 'active', remainingBalance: totalExpected, nextDueDate: nextDueDate.toDateString(),
-      installments, userId: user.uid, createdAt: new Date().toISOString()
-    }
+    const loan = { borrowerName: sanitize(newLoan.borrowerName), borrowerId: borrower?.id || '', currency: newLoan.currency, principal, interestMode: newLoan.interestMode, interestRate: interestRateDisplay, interestAmount: interestAmt, totalExpected, installmentAmount, installmentCount, durationDays, endDate: endDateStr, frequency: newLoan.frequency, startDate: newLoan.startDate, notes: sanitize(newLoan.notes), status: 'active', remainingBalance: totalExpected, nextDueDate: nextDueDate.toDateString(), installments, userId: user.uid, createdAt: new Date().toISOString() }
     try {
       await addDoc(collection(db, 'loans'), loan)
       setNewLoan({ borrowerName: '', currency: 'KSh', currencySearch: 'KSh', principal: '', interestMode: 'rate', interestRate: '', interestAmount: '', durationMode: 'days', durationDays: '', endDate: '', frequency: 'Monthly', startDate: '', notes: '', status: 'active' })
@@ -723,9 +736,7 @@ function App() {
   }
 
   const getLoanTransactions = (loanId) => transactions.filter(t => t.loanId === loanId)
-
   const loanPreview = (() => { if (!newLoan.principal) return null; try { return computeLoanFigures(newLoan) } catch { return null } })()
-
   const notifications = getDashboardNotifications()
   const monthlyInterest = getMonthlyInterest()
 
@@ -805,6 +816,9 @@ function App() {
           <button onClick={() => { setPage('loans'); setSelectedBorrower(null) }}>Loans</button>
           <button onClick={() => { setPage('reports'); setSelectedBorrower(null) }}>Reports</button>
           <button onClick={() => { setPage('converter'); setSelectedBorrower(null) }}>💱 Converter</button>
+          {notifications.length > 0 && (
+            <span style={{ background: '#e74c3c', color: '#fff', borderRadius: '50%', width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700 }}>{notifications.length}</span>
+          )}
           <span style={{ color: '#fff', fontSize: '13px', opacity: 0.7 }}>{user.email || user.phoneNumber || 'User'}</span>
           <button className="btn-logout" onClick={logout}>Logout</button>
         </div>
@@ -814,7 +828,7 @@ function App() {
       </nav>
 
       <div className={`mobile-menu ${mobileMenuOpen ? 'open' : ''}`}>
-        <button onClick={() => { setPage('dashboard'); setSelectedBorrower(null); setMobileMenuOpen(false) }}>📊 Dashboard</button>
+        <button onClick={() => { setPage('dashboard'); setSelectedBorrower(null); setMobileMenuOpen(false) }}>📊 Dashboard {notifications.length > 0 && `(${notifications.length})`}</button>
         <button onClick={() => { setPage('borrowers'); setSelectedBorrower(null); setMobileMenuOpen(false) }}>👥 Borrowers</button>
         <button onClick={() => { setPage('loans'); setSelectedBorrower(null); setMobileMenuOpen(false) }}>💰 Loans</button>
         <button onClick={() => { setPage('reports'); setSelectedBorrower(null); setMobileMenuOpen(false) }}>📋 Reports</button>
@@ -830,16 +844,32 @@ function App() {
 
         {page === 'dashboard' && (
           <div>
-            <h2>Dashboard</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+              <h2 style={{ margin: 0 }}>Dashboard</h2>
+              {notificationPermission === 'default' && (
+                <button
+                  onClick={async () => { const granted = await requestNotificationPermission(); setNotificationPermission(granted ? 'granted' : 'denied') }}
+                  style={{ background: '#1D9E75', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}
+                >
+                  🔔 Enable Notifications
+                </button>
+              )}
+              {notificationPermission === 'granted' && (
+                <span style={{ fontSize: '12px', color: '#1D9E75' }}>🔔 Notifications enabled</span>
+              )}
+              {notificationPermission === 'denied' && (
+                <span style={{ fontSize: '12px', color: '#e74c3c' }}>🔕 Notifications blocked — enable in browser settings</span>
+              )}
+            </div>
 
             {notifications.length > 0 && (
               <div style={{ marginBottom: '20px' }}>
-                <h4 style={{ fontSize: '14px', color: '#1a1a2e', marginBottom: '10px' }}>🔔 Notifications</h4>
+                <h4 style={{ fontSize: '14px', color: '#1a1a2e', marginBottom: '10px' }}>🔔 Notifications ({notifications.length})</h4>
                 {notifications.map((n, i) => (
                   <div key={i} style={{ background: '#fff', border: `1px solid ${n.color}`, borderLeft: `4px solid ${n.color}`, borderRadius: '8px', padding: '10px 14px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
                     onClick={() => { setPage('loans'); setSelectedBorrower(null) }}>
                     <p style={{ margin: 0, fontSize: '13px', color: '#333' }}>{n.icon} {n.message}</p>
-                    <span style={{ fontSize: '11px', color: '#888' }}>Tap to view →</span>
+                    <span style={{ fontSize: '11px', color: '#888', whiteSpace: 'nowrap' }}>Tap →</span>
                   </div>
                 ))}
               </div>
@@ -847,18 +877,15 @@ function App() {
 
             <div className="cards">
               <div className="card neutral" style={{ cursor: 'pointer' }} onClick={() => setPage('loans')}>
-                <p>Active Loans</p>
-                <h3>{loans.filter(l => l.status === 'active').length}</h3>
+                <p>Active Loans</p><h3>{loans.filter(l => l.status === 'active').length}</h3>
                 <p style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>Tap to view →</p>
               </div>
               <div className="card neutral" style={{ cursor: 'pointer' }} onClick={() => setPage('loans')}>
-                <p>Total Lent</p>
-                <h3>{loans.reduce((s, l) => s + l.principal, 0).toLocaleString()}</h3>
+                <p>Total Lent</p><h3>{loans.reduce((s, l) => s + l.principal, 0).toLocaleString()}</h3>
                 <p style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>Tap to view →</p>
               </div>
               <div className="card neutral" style={{ cursor: 'pointer' }} onClick={() => setPage('loans')}>
-                <p>Total Expected</p>
-                <h3>{loans.reduce((s, l) => s + l.totalExpected, 0).toLocaleString()}</h3>
+                <p>Total Expected</p><h3>{loans.reduce((s, l) => s + l.totalExpected, 0).toLocaleString()}</h3>
                 <p style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>Tap to view →</p>
               </div>
               <div className="card green" style={{ cursor: 'pointer' }} onClick={() => setPage('reports')}>
@@ -866,28 +893,21 @@ function App() {
                 <h3>{loans.reduce((s, l) => s + l.interestAmount, 0).toLocaleString()}</h3>
                 <div style={{ marginTop: '6px' }}>
                   <p style={{ fontSize: '11px', color: '#0F6E56', margin: '0 0 2px' }}>
-                    This month: {monthlyInterest.thisMonth.toLocaleString()}
-                    {' '}
-                    {monthlyInterest.trend === 'up' && <span style={{ color: '#1D9E75' }}>↑</span>}
-                    {monthlyInterest.trend === 'down' && <span style={{ color: '#e74c3c' }}>↓</span>}
-                    {monthlyInterest.trend === 'same' && <span style={{ color: '#888' }}>→</span>}
+                    This month: {monthlyInterest.thisMonth.toLocaleString()} {monthlyInterest.trend === 'up' ? '↑' : monthlyInterest.trend === 'down' ? '↓' : '→'}
                   </p>
                   <p style={{ fontSize: '11px', color: '#888', margin: 0 }}>Last month: {monthlyInterest.lastMonth.toLocaleString()}</p>
                 </div>
               </div>
               <div className="card green" style={{ cursor: 'pointer' }} onClick={() => setPage('reports')}>
-                <p>Paid Back</p>
-                <h3>{loans.reduce((s, l) => s + (l.totalExpected - l.remainingBalance), 0).toLocaleString()}</h3>
+                <p>Paid Back</p><h3>{loans.reduce((s, l) => s + (l.totalExpected - l.remainingBalance), 0).toLocaleString()}</h3>
                 <p style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>Tap to view →</p>
               </div>
               <div className="card neutral" style={{ cursor: 'pointer' }} onClick={() => setPage('borrowers')}>
-                <p>Remaining Balance</p>
-                <h3>{loans.reduce((s, l) => s + l.remainingBalance, 0).toLocaleString()}</h3>
+                <p>Remaining Balance</p><h3>{loans.reduce((s, l) => s + l.remainingBalance, 0).toLocaleString()}</h3>
                 <p style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>Tap to view borrowers →</p>
               </div>
               <div className="card red" style={{ cursor: 'pointer' }} onClick={() => setPage('loans')}>
-                <p>Overdue Loans</p>
-                <h3>{loans.filter(l => l.status === 'overdue').length}</h3>
+                <p>Overdue Loans</p><h3>{loans.filter(l => l.status === 'overdue').length}</h3>
                 <p style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>Tap to view →</p>
               </div>
             </div>
@@ -1074,7 +1094,7 @@ function App() {
             ) : (
               <div>
                 {loans.map((loan, index) => (
-                  <div className="loan-card" key={index} onClick={() => { setSelectedLoan(loan); setShowLoanDetail(true) }} style={{ cursor: 'pointer' }}>
+                  <div className="loan-card" key={index} onClick={() => { setSelectedLoan(loan); setShowLoanDetail(true); setShowInstallments(false) }} style={{ cursor: 'pointer' }}>
                     <div className="loan-card-header">
                       <h4>{loan.borrowerName}</h4>
                       <span className={`status-badge status-${loan.status}`}>
@@ -1119,25 +1139,13 @@ function App() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                     <h3 style={{ margin: 0, fontSize: '16px' }}>{selectedLoan.borrowerName} — Loan Details</h3>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <button
-                        className="btn-secondary"
-                        style={{ fontSize: '13px', color: '#3498db', borderColor: '#3498db' }}
-                        onClick={() => {
-                          setEditLoanData({
-                            principal: selectedLoan.principal,
-                            interestMode: selectedLoan.interestMode || 'rate',
-                            interestRate: selectedLoan.interestRate,
-                            interestAmount: selectedLoan.interestAmount,
-                            durationDays: selectedLoan.durationDays
-                          })
-                          setShowEditLoan(true)
-                          setShowLoanDetail(false)
-                        }}
-                      >✏️ Edit</button>
+                      <button className="btn-secondary" style={{ fontSize: '13px', color: '#3498db', borderColor: '#3498db' }}
+                        onClick={() => { setEditLoanData({ principal: selectedLoan.principal, interestMode: selectedLoan.interestMode || 'rate', interestRate: selectedLoan.interestRate, interestAmount: selectedLoan.interestAmount, durationDays: selectedLoan.durationDays }); setShowEditLoan(true); setShowLoanDetail(false) }}>
+                        ✏️ Edit
+                      </button>
                       <button className="btn-secondary" onClick={() => setShowLoanDetail(false)}>✕</button>
                     </div>
                   </div>
-
                   <div className="loan-summary-box">
                     <h4>Loan Summary</h4>
                     <div className="loan-summary-row"><span>Principal</span><span>{selectedLoan.currency} {selectedLoan.principal.toLocaleString()}</span></div>
@@ -1170,10 +1178,7 @@ function App() {
                   })()}
 
                   <div style={{ marginTop: '4px' }}>
-                    <div
-                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '10px 0', borderBottom: '1px solid #f0f2f5' }}
-                      onClick={() => setShowInstallments(!showInstallments)}
-                    >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '10px 0', borderBottom: '1px solid #f0f2f5' }} onClick={() => setShowInstallments(!showInstallments)}>
                       <h4 style={{ margin: 0, color: '#1a1a2e', fontSize: '14px' }}>Installment Schedule</h4>
                       <span style={{ fontSize: '13px', color: '#888' }}>{showInstallments ? '▲ Hide' : '▼ Show'}</span>
                     </div>
@@ -1248,16 +1253,13 @@ function App() {
                     <h3 style={{ margin: 0 }}>✏️ Edit Loan — {selectedLoan.borrowerName}</h3>
                     <button className="btn-secondary" onClick={() => { setShowEditLoan(false); setShowLoanDetail(true) }}>← Back</button>
                   </div>
-
                   <div style={{ background: '#fff3cd', border: '1px solid #ffc107', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px' }}>
                     <p style={{ margin: 0, fontSize: '13px', color: '#856404' }}>⚠️ Editing will recalculate the total payable. Payments already made are preserved.</p>
                   </div>
-
                   <div className="form-group">
                     <label>Principal Amount *</label>
                     <input type="number" value={editLoanData.principal} onChange={e => setEditLoanData({ ...editLoanData, principal: e.target.value })} />
                   </div>
-
                   <div className="form-group">
                     <label>Interest</label>
                     <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
@@ -1270,12 +1272,10 @@ function App() {
                       <input type="number" placeholder={`Fixed interest in ${selectedLoan.currency}`} value={editLoanData.interestAmount} onChange={e => setEditLoanData({ ...editLoanData, interestAmount: e.target.value })} />
                     )}
                   </div>
-
                   <div className="form-group">
                     <label>Duration (days)</label>
                     <input type="number" placeholder="e.g. 90" value={editLoanData.durationDays} onChange={e => setEditLoanData({ ...editLoanData, durationDays: e.target.value })} />
                   </div>
-
                   {editLoanData.principal && (
                     <div className="loan-summary-box">
                       <h4>Updated Preview</h4>
@@ -1297,7 +1297,6 @@ function App() {
                       })()}
                     </div>
                   )}
-
                   <div className="modal-buttons">
                     <button className="btn-secondary" onClick={() => { setShowEditLoan(false); setShowLoanDetail(true) }}>Cancel</button>
                     <button className="btn-primary" onClick={saveLoanEdit}>Save Changes</button>

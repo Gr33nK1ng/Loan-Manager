@@ -19,22 +19,9 @@ export default defineConfig({
         scope: '/',
         start_url: '/',
         icons: [
-          {
-            src: 'icons.svg',
-            sizes: '192x192',
-            type: 'image/svg+xml'
-          },
-          {
-            src: 'icons.svg',
-            sizes: '512x512',
-            type: 'image/svg+xml'
-          },
-          {
-            src: 'icons.svg',
-            sizes: '512x512',
-            type: 'image/svg+xml',
-            purpose: 'any maskable'
-          }
+          { src: 'icons.svg', sizes: '192x192', type: 'image/svg+xml' },
+          { src: 'icons.svg', sizes: '512x512', type: 'image/svg+xml' },
+          { src: 'icons.svg', sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' }
         ]
       },
       workbox: {
@@ -45,10 +32,7 @@ export default defineConfig({
             handler: 'NetworkFirst',
             options: {
               cacheName: 'firebase-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60 * 24
-              }
+              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 }
             }
           }
         ]
